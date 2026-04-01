@@ -40,32 +40,33 @@ switch ($action) {
         echo json_encode(['files' => $files]);
         break;
 
-    case 'transfer': // Копирование или Перемещение
+    case 'transfer':
         $data = json_decode(file_get_contents('php://input'), true);
-        $source = getSafePath($baseDir, $data['from_path']) . '/' . basename($data['name']);
-        $dest = getSafePath($baseDir, $data['to_path']) . '/' . basename($data['name']);
-        
-        if (!file_exists($source)) die(json_encode(['error' => 'Файл не найден']));
-        
-        if ($data['type'] === 'copy') {
-            $data['isDir'] ? shell_exec("cp -r ".escapeshellarg($source)." ".escapeshellarg($dest)) : copy($source, $dest);
-        } else {
-            rename($source, $dest);
+        foreach ($data['names'] as $name) {
+            $source = getSafePath($baseDir, $data['from_path']) . '/' . basename($name);
+            $dest = getSafePath($baseDir, $data['to_path']) . '/' . basename($name);
+            if ($data['type'] === 'copy') {
+                is_dir($source) ? shell_exec("cp -r ".escapeshellarg($source)." ".escapeshellarg($dest)) : copy($source, $dest);
+            } else {
+                rename($source, $dest);
+            }
         }
         echo json_encode(['success' => true]);
         break;
 
-    case 'create_folder':
+    case 'delete':
         $data = json_decode(file_get_contents('php://input'), true);
-        mkdir($targetPath . '/' . basename($data['name']));
+        foreach ($data['names'] as $name) {
+            $p = $targetPath . '/' . basename($name);
+            is_dir($p) ? shell_exec("rm -rf " . escapeshellarg($p)) : unlink($p);
+        }
         echo json_encode(['success' => true]);
         break;
 
     case 'upload':
-        if (isset($_FILES['file'])) {
-            move_uploaded_file($_FILES['file']['tmp_name'], $targetPath . '/' . basename($_FILES['file']['name']));
-            echo json_encode(['success' => true]);
-        }
+        if (!isset($_FILES['file'])) die(json_encode(['error' => 'Файл не получен']));
+        move_uploaded_file($_FILES['file']['tmp_name'], $targetPath . '/' . basename($_FILES['file']['name']));
+        echo json_encode(['success' => true]);
         break;
 
     case 'rename':
@@ -74,16 +75,9 @@ switch ($action) {
         echo json_encode(['success' => true]);
         break;
 
-    case 'chmod':
+    case 'create_folder':
         $data = json_decode(file_get_contents('php://input'), true);
-        chmod($targetPath . '/' . basename($data['name']), octdec($data['mode']));
-        echo json_encode(['success' => true]);
-        break;
-
-    case 'delete':
-        $data = json_decode(file_get_contents('php://input'), true);
-        $p = $targetPath . '/' . basename($data['name']);
-        is_dir($p) ? shell_exec("rm -rf " . escapeshellarg($p)) : unlink($p);
+        mkdir($targetPath . '/' . basename($data['name']));
         echo json_encode(['success' => true]);
         break;
 }
