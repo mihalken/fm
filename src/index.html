@@ -3,61 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Файловый Менеджер</title>
+    <title>Cloud Manager Pro</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
 <div class="panes-container">
     <div class="pane" id="pane-left">
-        <div class="path-bar" id="path-left">/</div>
-        <div class="controls">
-            <input type="file" id="file-left">
-            <button onclick="uploadFile('left')">Загрузить</button>
-            <input type="text" id="folder-left" style="width:100px" placeholder="Новая папка">
-            <button onclick="createFolder('left')">Создать</button>
+        <div class="toolbar">
+            <button class="toolbar-btn" onclick="triggerUpload('left')" title="Загрузить файл">📤</button>
+            <button class="toolbar-btn" onclick="createFolder('left')" title="Создать папку">📁+</button>
+            <input type="file" id="file-input-left" style="display:none" onchange="handleUpload('left', this)">
+            <div class="path-bar" id="path-left">/</div>
         </div>
         <div class="file-table-wrapper">
             <table class="file-table">
-                <thead>
-                    <tr>
-                        <th class="col-name">Имя</th>
-                        <th class="col-meta">Владелец</th>
-                        <th class="col-meta">Права</th>
-                        <th class="col-meta">Изменен</th>
-                        <th class="col-actions"></th>
-                    </tr>
-                </thead>
+                <thead><tr><th>Имя</th><th>Владелец:Группа</th><th>Права</th><th>Дата</th><th>Действия</th></tr></thead>
                 <tbody id="list-left"></tbody>
             </table>
         </div>
     </div>
 
     <div class="pane" id="pane-right">
-        <div class="path-bar" id="path-right">/</div>
-        <div class="controls">
-            <input type="file" id="file-right">
-            <button onclick="uploadFile('right')">Загрузить</button>
-            <input type="text" id="folder-right" style="width:100px" placeholder="Новая папка">
-            <button onclick="createFolder('right')">Создать</button>
+        <div class="toolbar">
+            <button class="toolbar-btn" onclick="triggerUpload('right')" title="Загрузить файл">📤</button>
+            <button class="toolbar-btn" onclick="createFolder('right')" title="Создать папку">📁+</button>
+            <input type="file" id="file-input-right" style="display:none" onchange="handleUpload('right', this)">
+            <div class="path-bar" id="path-right">/</div>
         </div>
         <div class="file-table-wrapper">
             <table class="file-table">
-                <thead>
-                    <tr>
-                        <th class="col-name">Имя</th>
-                        <th class="col-meta">Владелец</th>
-                        <th class="col-meta">Права</th>
-                        <th class="col-meta">Изменен</th>
-                        <th class="col-actions"></th>
-                    </tr>
-                </thead>
+                <thead><tr><th>Имя</th><th>Владелец:Группа</th><th>Права</th><th>Дата</th><th>Действия</th></tr></thead>
                 <tbody id="list-right"></tbody>
             </table>
         </div>
     </div>
 </div>
-
 <script src="script.js"></script>
 </body>
 </html>

@@ -1,9 +1,9 @@
 <?php
 return [
     'panes' => [
-        'left'  => '',          // Путь по умолчанию для левой панели (внутри uploads)
-        'right' => '',          // Путь по умолчанию для правой панели (внутри uploads)
+        'left'  => '', 
+        'right' => '',
     ],
-    'theme' => 'dark',          // Тема оформления: 'light' или 'dark'
+    'theme' => 'dark',
     'base_dir' => __DIR__ . '/uploads'
 ];
