@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Файловый Менеджер</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="panes-container">
+    <div class="pane" id="pane-left">
+        <div class="path-bar" id="path-left">/</div>
+        <div class="controls">
+            <input type="file" id="file-left">
+            <button onclick="uploadFile('left')">Загрузить</button>
+            <input type="text" id="folder-left" style="width:100px" placeholder="Новая папка">
+            <button onclick="createFolder('left')">Создать</button>
+        </div>
+        <div class="file-table-wrapper">
+            <table class="file-table">
+                <thead>
+                    <tr>
+                        <th class="col-name">Имя</th>
+                        <th class="col-meta">Владелец</th>
+                        <th class="col-meta">Права</th>
+                        <th class="col-meta">Изменен</th>
+                        <th class="col-actions"></th>
+                    </tr>
+                </thead>
+                <tbody id="list-left"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="pane" id="pane-right">
+        <div class="path-bar" id="path-right">/</div>
+        <div class="controls">
+            <input type="file" id="file-right">
+            <button onclick="uploadFile('right')">Загрузить</button>
+            <input type="text" id="folder-right" style="width:100px" placeholder="Новая папка">
+            <button onclick="createFolder('right')">Создать</button>
+        </div>
+        <div class="file-table-wrapper">
+            <table class="file-table">
+                <thead>
+                    <tr>
+                        <th class="col-name">Имя</th>
+                        <th class="col-meta">Владелец</th>
+                        <th class="col-meta">Права</th>
+                        <th class="col-meta">Изменен</th>
+                        <th class="col-actions"></th>
+                    </tr>
+                </thead>
+                <tbody id="list-right"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

@@ -1,7 +1,8 @@
 <?php
+$config = require 'config.php';
 header('Content-Type: application/json');
 
-$baseDir = __DIR__ . '/uploads';
+$baseDir = $config['base_dir'];
 if (!is_dir($baseDir)) {
     mkdir($baseDir, 0777, true);
 }
@@ -9,7 +10,7 @@ if (!is_dir($baseDir)) {
 $action = $_GET['action'] ?? '';
 $path = $_GET['path'] ?? '';
 
-// Защита от выхода за пределы папки
+// Защита от Directory Traversal
 $targetPath = realpath($baseDir . '/' . $path);
 if ($targetPath !== false && strpos($targetPath, realpath($baseDir)) !== 0) {
     die(json_encode(['error' => 'Доступ запрещен']));
@@ -19,15 +20,37 @@ if ($targetPath === false) {
 }
 
 switch ($action) {
+    case 'init':
+        // Отдаем только нужную часть конфига фронтенду
+        echo json_encode([
+            'theme' => $config['theme'],
+            'panes' => $config['panes']
+        ]);
+        break;
+
     case 'list':
         $files = [];
-        foreach (scandir($targetPath) as $file) {
+        $items = scandir($targetPath);
+        foreach ($items as $file) {
             if ($file === '.' || $file === '..') continue;
+            $fullPath = $targetPath . '/' . $file;
+            $stat = stat($fullPath);
+            
+            // Получаем имена юзера и группы (работает на Linux/macOS)
+            $owner = function_exists('posix_getpwuid') ? posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
+            $group = function_exists('posix_getgrgid') ? posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
+
             $files[] = [
                 'name' => $file,
-                'isDir' => is_dir($targetPath . '/' . $file)
+                'isDir' => is_dir($fullPath),
+                'owner' => $owner,
+                'group' => $group,
+                'perms' => substr(sprintf('%o', fileperms($fullPath)), -4),
+                'created' => date("Y-m-d H:i", $stat['ctime']),
+                'modified' => date("Y-m-d H:i", $stat['mtime'])
             ];
         }
+        // Сортировка: папки выше файлов
         usort($files, function($a, $b) {
             if ($a['isDir'] == $b['isDir']) return strcmp($a['name'], $b['name']);
             return $b['isDir'] - $a['isDir'];
@@ -63,13 +86,22 @@ switch ($action) {
         $newPath = $targetPath . '/' . basename($data['new_name']);
         
         if (!empty($data['new_name']) && file_exists($oldPath) && !file_exists($newPath)) {
-            if (rename($oldPath, $newPath)) {
-                echo json_encode(['success' => true]);
-            } else {
-                echo json_encode(['error' => 'Ошибка при переименовании']);
-            }
+            rename($oldPath, $newPath);
+            echo json_encode(['success' => true]);
         } else {
-            echo json_encode(['error' => 'Некорректное имя или файл уже существует']);
+            echo json_encode(['error' => 'Невозможно переименовать']);
+        }
+        break;
+
+    case 'chmod':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $itemPath = $targetPath . '/' . basename($data['name']);
+        // Переводим строку прав (например '0755') в восьмеричное число
+        $mode = octdec($data['mode']);
+        if (chmod($itemPath, $mode)) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['error' => 'Ошибка смены прав']);
         }
         break;
 
