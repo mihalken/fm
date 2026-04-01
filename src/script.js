@@ -1,111 +1,146 @@
 const state = { left: { path: '', selection: [] }, right: { path: '', selection: [] } };
+let clipboard = { type: null, files: [], sourcePath: '' };
+
+function formatPerms(octal) {
+    const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
+    const s = octal.slice(-3);
+    return Array.from(s).map(n => chars[parseInt(n)] || '???').join('');
+}
 
 async function init() {
     const res = await fetch('api.php?action=init');
     const config = await res.json();
     document.body.setAttribute('data-theme', config.theme);
-    state.left.path = config.panes.left;
-    state.right.path = config.panes.right;
+    
+    if (config.refresh_interval > 0) {
+        setInterval(() => { loadFiles('left'); loadFiles('right'); }, config.refresh_interval * 1000);
+    }
     loadFiles('left'); loadFiles('right');
 }
 
 async function loadFiles(side) {
-    state[side].selection = [];
-    updateToolbar(side);
     const res = await fetch(`api.php?action=list&path=${encodeURIComponent(state[side].path)}`);
     const data = await res.json();
+    if (data.error) return showToast(data.error, 'error');
+    
     const list = document.getElementById(`list-${side}`);
     list.innerHTML = '';
-
     if (state[side].path !== '') {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td colspan="4" style="color:var(--accent); cursor:pointer">🔙 .. (Вверх)</td>`;
+        tr.innerHTML = `<td colspan="4" style="color:var(--accent); cursor:pointer">🔙 .. Назад</td>`;
         tr.onclick = () => goUp(side);
         list.appendChild(tr);
     }
-
-    data.files.forEach(f => {
+    data.files?.forEach(f => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${f.isDir?'📁':'📄'} ${f.name}</td><td>${f.owner_group}</td><td>${f.perms}</td><td>${f.modified}</td>`;
+        if (state[side].selection.includes(f.name)) tr.classList.add('selected');
+        if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
         
-        tr.onclick = (e) => {
-            if (e.target.tagName === 'TD' && !e.ctrlKey) {
-                if (f.isDir && e.detail === 2) return enterFolder(side, f.name); // Double click
-                toggleSelect(side, f.name, tr, e.ctrlKey);
-            }
-        };
+        tr.innerHTML = `
+            <td>${f.isDir?'📁':'📄'} ${f.name}</td>
+            <td>${f.owner_group}</td>
+            <td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td>
+            <td>${f.modified}</td>
+        `;
+        tr.onclick = (e) => toggleSelect(side, f.name, tr, e.ctrlKey);
+        tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : null;
         list.appendChild(tr);
     });
     document.getElementById(`path-${side}`).innerText = `/${state[side].path}`;
 }
 
-function toggleSelect(side, name, row, isMulti) {
-    if (!isMulti) {
+function toggleSelect(side, name, row, ctrl) {
+    if (!ctrl) {
         state[side].selection = [name];
         Array.from(row.parentNode.children).forEach(r => r.classList.remove('selected'));
     } else {
-        state[side].selection.push(name);
+        state[side].selection.includes(name) ? state[side].selection = state[side].selection.filter(n => n!==name) : state[side].selection.push(name);
     }
-    row.classList.add('selected');
+    row.classList.toggle('selected', state[side].selection.includes(name));
     updateToolbar(side);
 }
 
 function updateToolbar(side) {
     const count = state[side].selection.length;
-    document.querySelectorAll(`#pane-${side} .toolbar-btn.needs-sel`).forEach(btn => btn.disabled = count === 0);
-    document.querySelector(`#pane-${side} .btn-rename`).disabled = count !== 1;
+    document.querySelectorAll(`#pane-${side} .needs-sel`).forEach(b => b.disabled = count === 0);
+    document.querySelectorAll(`#pane-${side} .needs-one`).forEach(b => b.disabled = count !== 1);
+    document.querySelectorAll(`.btn-paste`).forEach(b => b.disabled = !clipboard.type);
 }
 
 async function apiCall(action, side, body = {}) {
-    try {
-        const res = await fetch(`api.php?action=${action}&path=${encodeURIComponent(state[side].path)}`, {
-            method: 'POST', body: JSON.stringify(body)
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        loadFiles('left'); loadFiles('right');
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-function showToast(msg, type = '') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerText = msg;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-}
-
-// Actions
-function doCopy(side) { transfer(side, 'copy'); }
-function doMove(side) { transfer(side, 'move'); }
-function transfer(fromSide, type) {
-    const toSide = fromSide === 'left' ? 'right' : 'left';
-    apiCall('transfer', fromSide, { 
-        from_path: state[fromSide].path, to_path: state[toSide].path, 
-        names: state[fromSide].selection, type 
+    const res = await fetch(`api.php?action=${action}&path=${encodeURIComponent(state[side].path)}`, {
+        method: 'POST', body: JSON.stringify(body)
     });
-}
-function doDelete(side) { if(confirm('Удалить выделенное?')) apiCall('delete', side, { names: state[side].selection }); }
-function doRename(side) {
-    const old = state[side].selection[0];
-    const res = prompt("Новое имя:", old);
-    if(res) apiCall('rename', side, { old_name: old, new_name: res });
-}
-function doCreateFolder(side) {
-    const res = prompt("Имя папки:");
-    if(res) apiCall('create_folder', side, { name: res });
+    const data = await res.json();
+    if (data.confirm && confirm(data.confirm)) return apiCall(action, side, {...body, overwrite: true});
+    if (data.error) showToast(data.error, 'error');
+    loadFiles('left'); loadFiles('right');
 }
 
-function enterFolder(side, name) { state[side].path += (state[side].path ? '/' : '') + name; loadFiles(side); }
-function goUp(side) { let p = state[side].path.split('/'); p.pop(); state[side].path = p.join('/'); loadFiles(side); }
-function triggerUpload(side) { document.getElementById(`file-input-${side}`).click(); }
-async function handleUpload(side, input) {
-    const formData = new FormData();
-    formData.append('file', input.files[0]);
-    await fetch(`api.php?action=upload&path=${encodeURIComponent(state[side].path)}`, { method: 'POST', body: formData });
-    input.value = '';
-    loadFiles(side);
+function showToast(m, t='') {
+    const c = document.getElementById('toast-container');
+    const b = document.createElement('div'); b.className = `toast ${t}`; b.innerText = m;
+    c.appendChild(b); setTimeout(() => b.remove(), 3000);
+}
+
+function refreshPane(side) { loadFiles(side); showToast('Обновлено'); }
+
+function addToClipboard(side, type) {
+    clipboard = { type, files: [...state[side].selection], sourcePath: state[side].path };
+    showToast(type === 'copy' ? 'Скопировано' : 'Вырезано');
+    loadFiles('left'); loadFiles('right');
+}
+
+async function doPaste(side) {
+    if (!clipboard.type) return;
+    await apiCall('transfer', side, { from_path: clipboard.sourcePath, to_path: state[side].path, names: clipboard.files, type: clipboard.type });
+    if (clipboard.type === 'cut') clipboard = { type: null, files: [], sourcePath: '' };
+}
+
+function doDelete(s) { if(confirm('Удалить выбранное?')) apiCall('delete', s, { names: state[s].selection }); }
+function doRename(s) {
+    const old = state[s].selection[0];
+    const n = prompt("Новое имя:", old);
+    if(n) apiCall('rename', s, { old_name: old, new_name: n });
+}
+function doCreateFolder(s) {
+    const n = prompt("Имя папки:");
+    if(n) apiCall('create_folder', s, { name: n });
+}
+
+let curPerm = { side: '', name: '' };
+function openPerms(side) {
+    curPerm = { side, name: state[side].selection[0] };
+    const row = document.querySelector(`#pane-${side} tr.selected`);
+    const m = row.cells[2].getAttribute('title').slice(-3);
+    const set = (v, r, w, x) => {
+        document.getElementById(r).checked = v & 4; document.getElementById(w).checked = v & 2; document.getElementById(x).checked = v & 1;
+    };
+    set(m[0], 'p-u-r', 'p-u-w', 'p-u-x'); set(m[1], 'p-g-r', 'p-g-w', 'p-g-x'); set(m[2], 'p-o-r', 'p-o-w', 'p-o-x');
+    updateOctal();
+    document.getElementById('permsModal').style.display = 'flex';
+}
+function updateOctal() {
+    const calc = (r, w, x) => (document.getElementById(r).checked?4:0)+(document.getElementById(w).checked?2:0)+(document.getElementById(x).checked?1:0);
+    document.getElementById('permsOctal').innerText = `0${calc('p-u-r','p-u-w','p-u-x')}${calc('p-g-r','p-g-w','p-g-x')}${calc('p-o-r','p-o-w','p-o-x')}`;
+}
+async function savePerms() {
+    await apiCall('chmod', curPerm.side, { name: curPerm.name, mode: document.getElementById('permsOctal').innerText });
+    document.getElementById('permsModal').style.display = 'none';
+}
+
+function enterFolder(s, n) { state[s].path += (state[s].path ? '/' : '') + n; loadFiles(s); }
+function goUp(s) { let p = state[s].path.split('/'); p.pop(); state[s].path = p.join('/'); loadFiles(s); }
+function triggerUpload(s) { document.getElementById(`file-input-${s}`).click(); }
+async function handleUpload(s, i) {
+    const fd = new FormData(); fd.append('file', i.files[0]);
+    const res = await fetch(`api.php?action=upload&path=${encodeURIComponent(state[s].path)}`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.confirm && confirm(data.confirm)) {
+        fd.append('overwrite', 'true');
+        await fetch(`api.php?action=upload&path=${encodeURIComponent(state[s].path)}`, { method: 'POST', body: fd });
+    } else if (data.error) showToast(data.error, 'error');
+    i.value = ''; loadFiles(s);
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -1,9 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloud Commander</title>
+    <meta charset="UTF-8"><title>Cloud Commander Pro</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,42 +9,55 @@
 <div class="panes-container">
     <div class="pane" id="pane-left">
         <div class="toolbar">
-            <button class="toolbar-btn" onclick="triggerUpload('left')">📤</button>
-            <button class="toolbar-btn" onclick="doCreateFolder('left')">📁+</button>
-            <span style="border-left: 1px solid var(--border-color); margin: 0 5px;"></span>
-            <button class="toolbar-btn needs-sel" onclick="doCopy('left')">📋</button>
-            <button class="toolbar-btn needs-sel" onclick="doMove('left')">🚚</button>
-            <button class="toolbar-btn needs-sel btn-rename" onclick="doRename('left')">✏️</button>
-            <button class="toolbar-btn needs-sel" onclick="doDelete('left')">🗑️</button>
+            <button class="toolbar-btn" onclick="refreshPane('left')" title="Обновить">🔄</button>
+            <div class="toolbar-sep"></div>
+            <button class="toolbar-btn" onclick="triggerUpload('left')" title="Загрузить">📤</button>
+            <button class="toolbar-btn" onclick="doCreateFolder('left')" title="Новая папка">📁+</button>
+            <div class="toolbar-sep"></div>
+            <button class="toolbar-btn needs-sel" onclick="addToClipboard('left', 'copy')" title="Копировать">📄+</button>
+            <button class="toolbar-btn needs-sel" onclick="addToClipboard('left', 'cut')" title="Вырезать">✂️</button>
+            <button class="toolbar-btn btn-paste" onclick="doPaste('left')" title="Вставить">📋</button>
+            <div class="toolbar-sep"></div>
+            <button class="toolbar-btn needs-one" onclick="doRename('left')" title="Имя">✏️</button>
+            <button class="toolbar-btn needs-one" onclick="openPerms('left')" title="Права">🛡️</button>
+            <button class="toolbar-btn needs-sel" onclick="doDelete('left')" title="Удалить">🗑️</button>
             <input type="file" id="file-input-left" style="display:none" onchange="handleUpload('left', this)">
         </div>
         <div class="path-bar" id="path-left">/</div>
-        <div class="file-table-wrapper">
-            <table class="file-table">
-                <thead><tr><th>Имя</th><th>Владелец</th><th>Права</th><th>Дата</th></tr></thead>
-                <tbody id="list-left"></tbody>
-            </table>
-        </div>
+        <div class="file-table-wrapper"><table class="file-table"><thead><tr><th>Имя</th><th>Владелец</th><th>Права</th><th>Дата</th></tr></thead><tbody id="list-left"></tbody></table></div>
     </div>
-
     <div class="pane" id="pane-right">
         <div class="toolbar">
-            <button class="toolbar-btn" onclick="triggerUpload('right')">📤</button>
-            <button class="toolbar-btn" onclick="doCreateFolder('right')">📁+</button>
-            <span style="border-left: 1px solid var(--border-color); margin: 0 5px;"></span>
-            <button class="toolbar-btn needs-sel" onclick="doCopy('right')">📋</button>
-            <button class="toolbar-btn needs-sel" onclick="doMove('right')">🚚</button>
-            <button class="toolbar-btn needs-sel btn-rename" onclick="doRename('right')">✏️</button>
-            <button class="toolbar-btn needs-sel" onclick="doDelete('right')">🗑️</button>
+            <button class="toolbar-btn" onclick="refreshPane('right')" title="Обновить">🔄</button>
+            <div class="toolbar-sep"></div>
+            <button class="toolbar-btn" onclick="triggerUpload('right')" title="Загрузить">📤</button>
+            <button class="toolbar-btn" onclick="doCreateFolder('right')" title="Новая папка">📁+</button>
+            <div class="toolbar-sep"></div>
+            <button class="toolbar-btn needs-sel" onclick="addToClipboard('right', 'copy')" title="Копировать">📄+</button>
+            <button class="toolbar-btn needs-sel" onclick="addToClipboard('right', 'cut')" title="Вырезать">✂️</button>
+            <button class="toolbar-btn btn-paste" onclick="doPaste('right')" title="Вставить">📋</button>
+            <div class="toolbar-sep"></div>
+            <button class="toolbar-btn needs-one" onclick="doRename('right')" title="Имя">✏️</button>
+            <button class="toolbar-btn needs-one" onclick="openPerms('right')" title="Права">🛡️</button>
+            <button class="toolbar-btn needs-sel" onclick="doDelete('right')" title="Удалить">🗑️</button>
             <input type="file" id="file-input-right" style="display:none" onchange="handleUpload('right', this)">
         </div>
         <div class="path-bar" id="path-right">/</div>
-        <div class="file-table-wrapper">
-            <table class="file-table">
-                <thead><tr><th>Имя</th><th>Владелец</th><th>Права</th><th>Дата</th></tr></thead>
-                <tbody id="list-right"></tbody>
-            </table>
+        <div class="file-table-wrapper"><table class="file-table"><thead><tr><th>Имя</th><th>Владелец</th><th>Права</th><th>Дата</th></tr></thead><tbody id="list-right"></tbody></table></div>
+    </div>
+</div>
+
+<div id="permsModal" class="modal-overlay">
+    <div class="modal">
+        <h3>🛡️ Права доступа</h3>
+        <div class="perms-grid" onclick="updateOctal()">
+            <span></span><b>R</b><b>W</b><b>X</b>
+            <span>Владелец</span><input type="checkbox" id="p-u-r"><input type="checkbox" id="p-u-w"><input type="checkbox" id="p-u-x">
+            <span>Группа</span><input type="checkbox" id="p-g-r"><input type="checkbox" id="p-g-w"><input type="checkbox" id="p-g-x">
+            <span>Прочие</span><input type="checkbox" id="p-o-r"><input type="checkbox" id="p-o-w"><input type="checkbox" id="p-o-x">
         </div>
+        <div style="text-align:center; font-size:12px">Маска: <b id="permsOctal">0644</b></div>
+        <div class="modal-btns"><button onclick="document.getElementById('permsModal').style.display='none'">Отмена</button><button onclick="savePerms()" style="background:var(--accent); color:#fff; border:none; padding:5px 15px; border-radius:4px">ОК</button></div>
     </div>
 </div>
 <script src="script.js"></script>
