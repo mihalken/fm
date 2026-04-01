@@ -1,7 +1,6 @@
 <?php
 header('Content-Type: application/json');
 
-// Корневая папка для файлов
 $baseDir = __DIR__ . '/uploads';
 if (!is_dir($baseDir)) {
     mkdir($baseDir, 0777, true);
@@ -10,7 +9,7 @@ if (!is_dir($baseDir)) {
 $action = $_GET['action'] ?? '';
 $path = $_GET['path'] ?? '';
 
-// Базовая защита от выхода за пределы корневой директории (Directory Traversal)
+// Защита от выхода за пределы папки
 $targetPath = realpath($baseDir . '/' . $path);
 if ($targetPath !== false && strpos($targetPath, realpath($baseDir)) !== 0) {
     die(json_encode(['error' => 'Доступ запрещен']));
@@ -29,7 +28,6 @@ switch ($action) {
                 'isDir' => is_dir($targetPath . '/' . $file)
             ];
         }
-        // Сортируем: сначала папки, потом файлы
         usort($files, function($a, $b) {
             if ($a['isDir'] == $b['isDir']) return strcmp($a['name'], $b['name']);
             return $b['isDir'] - $a['isDir'];
@@ -59,11 +57,26 @@ switch ($action) {
         }
         break;
 
+    case 'rename':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $oldPath = $targetPath . '/' . basename($data['old_name']);
+        $newPath = $targetPath . '/' . basename($data['new_name']);
+        
+        if (!empty($data['new_name']) && file_exists($oldPath) && !file_exists($newPath)) {
+            if (rename($oldPath, $newPath)) {
+                echo json_encode(['success' => true]);
+            } else {
+                echo json_encode(['error' => 'Ошибка при переименовании']);
+            }
+        } else {
+            echo json_encode(['error' => 'Некорректное имя или файл уже существует']);
+        }
+        break;
+
     case 'delete':
         $data = json_decode(file_get_contents('php://input'), true);
         $delPath = $targetPath . '/' . basename($data['name']);
         if (is_dir($delPath)) {
-            // Удаляем папку (только если она пустая для безопасности)
             @rmdir($delPath); 
         } else if (is_file($delPath)) {
             @unlink($delPath);
