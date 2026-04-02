@@ -10,8 +10,13 @@
 * rename
 * cut / copy / paste
 * delete
+* edit permissions
+* trash
 * dark theme
 * adaptive design
+
+### Config
+~$ nano src/config.php
 
 ### Run
 ~$ ./run.sh

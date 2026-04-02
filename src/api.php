@@ -49,7 +49,7 @@ function getSafePath($dir, $rel) {
     $p = realpath($dir . '/' . $rel);
     $base = realpath($dir);
     if ($p !== false && strpos($p, $base) === 0) return $p;
-    return $base;
+    throw new Exception('Папка не найдена или недоступна.');
 }
 
 function checkAccess($path, $type = 'w') {
@@ -112,7 +112,8 @@ function handleAction($action, $path, $data, $targetPath) {
                 'refresh_interval' => $config['refresh_interval'], 
                 'panes' => $config['panes'],
                 'max_edit_size' => $config['max_edit_size'] ?? 1048576,
-                'window_title' => $config['window_title'] ?? 'Cloud Commander' // Передаем заголовок
+                'window_title' => $config['window_title'] ?? 'Simple File Manager',
+                'use_trash' => $config['use_trash'] ?? false
             ];
 
         case 'list':
@@ -143,7 +144,58 @@ function handleAction($action, $path, $data, $targetPath) {
             usort($files, fn($a, $b) => $b['isDir'] - $a['isDir'] ?: strcasecmp($a['name'], $b['name']));
             return ['files' => $files];
 
+        // ОБЪЕДИНЕННЫЙ БЛОК: Перенос файлов и Удаление
         case 'transfer_os': 
+        case 'delete':
+            $isDelete = ($action === 'delete');
+            $useTrash = $config['use_trash'] ?? false;
+            $trashPath = normalizePath($baseDir . '/.trash');
+            
+            if ($isDelete) {
+                checkAccess($targetPath, 'w');
+                $permanentDelete = [];
+                $moveToTrash = [];
+                
+                // Сортируем: что удалять навсегда, а что в корзину
+                foreach ($data['names'] as $name) {
+                    $p = normalizePath($targetPath . '/' . basename($name));
+                    checkLock($p);
+                    $isTrashFolder = ($p === $trashPath);
+                    $isInTrash = strpos($p, $trashPath . '/') === 0;
+                    
+                    if ($useTrash && !$isTrashFolder && !$isInTrash) {
+                        $moveToTrash[] = basename($name);
+                    } else {
+                        $permanentDelete[] = basename($name);
+                    }
+                }
+                
+                // Выполняем безвозвратное удаление
+                foreach ($permanentDelete as $name) {
+                    $p = normalizePath($targetPath . '/' . basename($name));
+                    is_dir($p) ? shell_exec("rm -rf ".escapeshellarg($p)) : @unlink($p);
+                }
+                
+                // Если в корзину ничего переносить не надо - завершаем
+                if (empty($moveToTrash)) {
+                    return ['success' => true];
+                }
+                
+                // Иначе подготавливаем переменные для переноса (transfer_os)
+                $data['from_path'] = $path;
+                $data['to_path'] = '.trash';
+                $data['names'] = $moveToTrash;
+                $data['type'] = 'cut';
+                
+                if (!is_dir($trashPath)) @mkdir($trashPath, 0777, true);
+            } else {
+                // Если это обычный перенос, и цель корзина - создаем её
+                if ($data['to_path'] === '.trash' && !is_dir($trashPath)) {
+                    @mkdir($trashPath, 0777, true);
+                }
+            }
+
+            // --- ОБЩАЯ ЛОГИКА ФОНОВОГО ПЕРЕНОСА (ОБЩАЯ ДЛЯ DELETE И TRANSFER) ---
             $srcBase = getSafePath($baseDir, $data['from_path']);
             $dstBase = getSafePath($baseDir, $data['to_path']);
             checkAccess($dstBase, 'w');
@@ -162,7 +214,8 @@ function handleAction($action, $path, $data, $targetPath) {
                     $isDir = is_dir($srcPath);
                     $ext = (isset($info['extension']) && !$isDir) ? '.' . $info['extension'] : '';
                     $filename = $isDir ? $originalBaseName : $info['filename'];
-                    $newBaseName = $filename . ' (копия ' . $counter . ')' . $ext;
+                    $suffix = $isDelete ? 'удалено ' : 'копия ';
+                    $newBaseName = $filename . ' (' . $suffix . $counter . ')' . $ext;
                     $counter++;
                 }
                 
@@ -224,6 +277,19 @@ function handleAction($action, $path, $data, $targetPath) {
             foreach ($spawnList as $tid) {
                 $cmd = "php " . escapeshellarg(__DIR__ . "/worker.php") . " " . escapeshellarg($tid) . " > /dev/null 2>&1 &";
                 exec($cmd);
+            }
+
+            // Передаем клиенту команду на запуск процесса очистки пустых папок после завершения фоновых задач
+            if ($isDelete) {
+                 return [
+                    'success' => true,
+                    'trash_started' => true,
+                    'trash_cleanup' => [
+                        'from_path' => $data['from_path'],
+                        'names' => $data['names'],
+                        'type' => 'cut'
+                    ]
+                 ];
             }
 
             return ['success' => true];
@@ -294,15 +360,6 @@ function handleAction($action, $path, $data, $targetPath) {
             $p = $targetPath . '/' . basename($data['name']);
             checkLock($p); 
             file_put_contents($p, $data['content']);
-            return ['success' => true];
-
-        case 'delete':
-            checkAccess($targetPath, 'w');
-            foreach ($data['names'] as $name) {
-                $p = $targetPath . '/' . basename($name);
-                checkLock($p); 
-                is_dir($p) ? shell_exec("rm -rf ".escapeshellarg($p)) : @unlink($p);
-            }
             return ['success' => true];
 
         case 'rename':
@@ -410,7 +467,8 @@ try {
         echo json_encode(['responses' => $responses]);
     } else {
         $path = $_GET['path'] ?? '';
-        $targetPath = getSafePath($baseDir, $path);
+        $targetPath = ($action === 'init' || $action === 'poll_tasks') ? $baseDir : getSafePath($baseDir, $path);
+        
         $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
         echo json_encode(handleAction($action, $path, $data, $targetPath));
     }

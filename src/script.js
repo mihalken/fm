@@ -31,16 +31,21 @@ function gotoPath(side, path) {
     loadFiles(side);
 }
 
+async function gotoTrash(side) {
+    const res = await fetch(`api.php?action=list&path=`);
+    const data = await res.json();
+    if (data.files && data.files.some(f => f.name === '.trash' && f.isDir)) {
+        gotoPath(side, '.trash');
+    }
+}
+
 async function init() {
     const res = await fetch('api.php?action=init');
     appConfig = await res.json(); 
     
     document.body.setAttribute('data-theme', appConfig.theme);
-    
-    // Применяем заголовок из конфига
-    if (appConfig.window_title) {
-        document.title = appConfig.window_title;
-    }
+    if (appConfig.window_title) document.title = appConfig.window_title;
+    if (appConfig.use_trash) document.querySelectorAll('.btn-trash').forEach(b => b.style.display = 'inline-block');
     
     state.left.path = appConfig.panes.left;
     state.right.path = appConfig.panes.right;
@@ -256,6 +261,13 @@ async function apiCall(action, side, body = {}) {
     
     if (data.error) showToast(data.error, 'error');
     
+    // Если сервер сообщает, что начат фоновый перенос в корзину
+    if (data.trash_started) {
+        lastCleanupData = data.trash_cleanup;
+        showToast("Перемещение в корзину запущено в фоне");
+        pollTasks();
+    }
+    
     reloadBoth(); 
 }
 
@@ -267,7 +279,13 @@ function showToast(m, t='') {
 
 function refreshPane(side) { loadFiles(side); showToast('Обновлено'); }
 function addToClipboard(side, type) { clipboard = { type, files: [...state[side].selection], sourcePath: state[side].path }; showToast(type === 'copy' ? 'Скопировано в буфер' : 'Вырезано в буфер'); reloadBoth(); }
-function doDelete(s) { if(confirm('Удалить выбранное?')) apiCall('delete', s, { names: state[s].selection }); }
+
+function doDelete(s) { 
+    const isTrash = state[s].path.split('/')[0] === '.trash';
+    const msg = (appConfig.use_trash && !isTrash) ? 'Переместить в корзину?' : 'Удалить НАВСЕГДА?';
+    if(confirm(msg)) apiCall('delete', s, { names: state[s].selection }); 
+}
+
 function doRename(s) { const old = state[s].selection[0]; const n = prompt("Новое имя:", old); if(n) apiCall('rename', s, { old_name: old, new_name: n }); }
 function doCreateObj(s, type) { const n = prompt(type === 'folder' ? "Имя папки:" : "Имя файла:"); if(n) apiCall(type === 'folder' ? 'create_folder' : 'create_file', s, { name: n }); }
 

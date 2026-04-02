@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cloud Commander</title>
+    <title>Simple File Manager</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,6 +14,7 @@
     <div class="pane" id="pane-left">
         <div class="toolbar">
             <button class="toolbar-btn" onclick="refreshPane('left')" title="Обновить">🔄</button>
+            <button class="toolbar-btn btn-trash" onclick="gotoTrash('left')" title="Корзина" style="display:none">🗑️</button>
             <div class="toolbar-sep"></div>
             <button class="toolbar-btn" onclick="triggerUpload('left')" title="Загрузить">📥</button>
             <button class="toolbar-btn needs-one" onclick="doDownload('left')" title="Скачать" disabled>📤</button>
@@ -26,7 +27,7 @@
             <div class="toolbar-sep"></div>
             <button class="toolbar-btn needs-one" onclick="doRename('left')" title="Имя" disabled>✏️</button>
             <button class="toolbar-btn needs-one" onclick="openPerms('left')" title="Права" disabled>🛡️</button>
-            <button class="toolbar-btn needs-sel" onclick="doDelete('left')" title="Удалить" disabled>🗑️</button>
+            <button class="toolbar-btn needs-sel" onclick="doDelete('left')" title="Удалить" disabled>❌</button>
             <input type="file" id="file-input-left" style="display:none" onchange="handleUpload('left', this)">
         </div>
         <div class="path-bar" id="path-left"></div>
@@ -49,6 +50,7 @@
     <div class="pane" id="pane-right">
         <div class="toolbar">
             <button class="toolbar-btn" onclick="refreshPane('right')" title="Обновить">🔄</button>
+            <button class="toolbar-btn btn-trash" onclick="gotoTrash('right')" title="Корзина" style="display:none">🗑️</button>
             <div class="toolbar-sep"></div>
             <button class="toolbar-btn" onclick="triggerUpload('right')" title="Загрузить">📥</button>
             <button class="toolbar-btn needs-one" onclick="doDownload('right')" title="Скачать" disabled>📤</button>
@@ -61,7 +63,7 @@
             <div class="toolbar-sep"></div>
             <button class="toolbar-btn needs-one" onclick="doRename('right')" title="Имя" disabled>✏️</button>
             <button class="toolbar-btn needs-one" onclick="openPerms('right')" title="Права" disabled>🛡️</button>
-            <button class="toolbar-btn needs-sel" onclick="doDelete('right')" title="Удалить" disabled>🗑️</button>
+            <button class="toolbar-btn needs-sel" onclick="doDelete('right')" title="Удалить" disabled>❌</button>
             <input type="file" id="file-input-right" style="display:none" onchange="handleUpload('right', this)">
         </div>
         <div class="path-bar" id="path-right"></div>
