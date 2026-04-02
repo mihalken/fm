@@ -17,7 +17,10 @@ body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 10px; ba
 .toolbar-btn:disabled { opacity: 0.2; cursor: default; }
 .toolbar-sep { width: 1px; height: 18px; background: var(--border-color); margin: 0 4px; }
 
-.path-bar { padding: 4px 10px; font-size: 11px; background: var(--pane-bg); border-bottom: 1px solid var(--border-color); color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path-bar { padding: 4px 10px; font-size: 13px; background: var(--pane-bg); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; flex-wrap: wrap; overflow: hidden; }
+.breadcrumb { cursor: pointer; color: var(--text-color); padding: 2px 4px; border-radius: 3px; transition: background 0.2s; }
+.breadcrumb:hover { background: var(--hover-bg); color: var(--accent); text-decoration: underline; }
+.breadcrumb-sep { color: #888; margin: 0 4px; font-size: 12px; }
 
 .file-table-wrapper { flex-grow: 1; overflow: auto; }
 .file-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; user-select: none; }

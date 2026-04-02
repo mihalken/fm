@@ -26,6 +26,11 @@ function toggleSizeFormat(e) {
     loadFiles('right');
 }
 
+function gotoPath(side, path) {
+    state[side].path = path;
+    loadFiles(side);
+}
+
 async function init() {
     const res = await fetch('api.php?action=init');
     const config = await res.json();
@@ -75,7 +80,39 @@ async function loadFiles(side) {
         tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : openEditor(side, f.name);
         list.appendChild(tr);
     });
-    document.getElementById(`path-${side}`).innerText = `/${state[side].path}`;
+    
+    // Рендеринг хлебных крошек
+    const pathBar = document.getElementById(`path-${side}`);
+    pathBar.innerHTML = '';
+    
+    const root = document.createElement('span');
+    root.className = 'breadcrumb';
+    root.innerText = '🏠 /';
+    root.onclick = () => gotoPath(side, '');
+    pathBar.appendChild(root);
+
+    if (state[side].path) {
+        const parts = state[side].path.split('/');
+        let acc = '';
+        parts.forEach((part, index) => {
+            acc += (acc ? '/' : '') + part;
+            
+            const crumb = document.createElement('span');
+            crumb.className = 'breadcrumb';
+            crumb.innerText = part;
+            let targetPath = acc; 
+            crumb.onclick = () => gotoPath(side, targetPath);
+            pathBar.appendChild(crumb);
+            
+            if (index < parts.length - 1) {
+                const sep = document.createElement('span');
+                sep.className = 'breadcrumb-sep';
+                sep.innerText = '/';
+                pathBar.appendChild(sep);
+            }
+        });
+    }
+
     updateToolbar(side);
 }
 

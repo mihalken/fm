@@ -139,31 +139,61 @@ switch ($action) {
         foreach ($data['names'] as $name) {
             $srcPath = rtrim(normalizePath($srcBase . '/' . basename($name)), '/');
             $dstFolder = rtrim(normalizePath($dstBase), '/');
-            $dstPath = rtrim(normalizePath($dstBase . '/' . basename($name)), '/');
             
-            // ЗАЩИТА ОТ КОПИРОВАНИЯ В СЕБЯ
+            // --- ЛОГИКА АВТОМАТИЧЕСКОГО ПЕРЕИМЕНОВАНИЯ ПРИ СОВПАДЕНИИ ---
+            $originalBaseName = basename($name);
+            $newBaseName = $originalBaseName;
+            $counter = 1;
+            
+            while (file_exists($dstBase . '/' . $newBaseName)) {
+                $info = pathinfo($originalBaseName);
+                $isDir = is_dir($srcPath);
+                // Для папок расширение не выделяем, чтобы не сломать "my.folder" -> "my (копия 1).folder"
+                $ext = (isset($info['extension']) && !$isDir) ? '.' . $info['extension'] : '';
+                $filename = $isDir ? $originalBaseName : $info['filename'];
+                
+                $newBaseName = $filename . ' (копия ' . $counter . ')' . $ext;
+                $counter++;
+            }
+            
+            $dstPath = rtrim(normalizePath($dstBase . '/' . $newBaseName), '/');
+            
             if ($srcPath === $dstPath || strpos($dstFolder . '/', $srcPath . '/') === 0) {
-                die(json_encode(['error' => 'Ошибка: попытка скопировать или переместить объект сам в себя (или в свою подпапку).']));
+                die(json_encode(['error' => 'Ошибка: попытка скопировать или переместить объект сам в себя.']));
             }
             
             checkLock($srcPath); 
             checkLock($dstPath); 
             
             if (is_dir($srcPath)) {
-                $relBase = basename($name);
-                @mkdir($dstBase . '/' . $relBase, 0777, true);
+                @mkdir($dstBase . '/' . $newBaseName, 0777, true);
                 
                 $subItems = scanDirRecursive($srcPath, strlen($srcBase));
                 foreach ($subItems as $item) {
+                    // Подменяем имя родительской папки в путях внутренних файлов
+                    $parts = explode('/', $item['rel_path'], 2);
+                    $parts[0] = $newBaseName; 
+                    $remappedRelPath = implode('/', $parts);
+
                     if ($item['is_dir']) {
-                        @mkdir($dstBase . '/' . $item['rel_path'], 0777, true);
+                        @mkdir($dstBase . '/' . $remappedRelPath, 0777, true);
                     } else {
-                        @mkdir($dstBase . '/' . dirname($item['rel_path']), 0777, true);
-                        $filesToTransfer[] = $item;
+                        @mkdir($dstBase . '/' . dirname($remappedRelPath), 0777, true);
+                        $filesToTransfer[] = [
+                            'orig_rel_path' => $item['rel_path'],
+                            'new_rel_path' => $remappedRelPath,
+                            'size' => $item['size'],
+                            'is_dir' => false
+                        ];
                     }
                 }
             } else {
-                $filesToTransfer[] = ['rel_path' => basename($name), 'size' => filesize($srcPath), 'is_dir' => false];
+                $filesToTransfer[] = [
+                    'orig_rel_path' => basename($name),
+                    'new_rel_path' => $newBaseName,
+                    'size' => filesize($srcPath),
+                    'is_dir' => false
+                ];
             }
         }
 
@@ -173,9 +203,10 @@ switch ($action) {
                 $taskId = uniqid('task_');
                 $tasks[$taskId] = [
                     'id' => $taskId, 'type' => $data['type'],
-                    'from' => $data['from_path'] . '/' . $f['rel_path'],
-                    'to' => $data['to_path'] . '/' . $f['rel_path'],
-                    'name' => $f['rel_path'], 'size' => $f['size'], 
+                    'from' => $data['from_path'] . '/' . $f['orig_rel_path'],
+                    'to' => $data['to_path'] . '/' . $f['new_rel_path'],
+                    'name' => $f['new_rel_path'], 
+                    'size' => $f['size'], 
                     'offset' => 0, 'status' => 'running'
                 ];
                 $spawnList[] = $taskId;
