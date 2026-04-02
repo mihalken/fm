@@ -91,6 +91,7 @@ switch ($action) {
                 $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
                 $files[] = [
                     'name' => $file, 'isDir' => is_dir($fp),
+                    'size' => is_dir($fp) ? '-' : (filesize($fp) ?: 0),
                     'owner_group' => ($owner ?: '???') . ':' . ($group ?: '???'),
                     'perms' => substr(sprintf('%o', fileperms($fp)), -4),
                     'modified' => date("Y-m-d H:i", $stat['mtime'])
@@ -167,7 +168,6 @@ switch ($action) {
         modifyTasks(function($tasks) use ($data, $baseDir) {
             if (isset($tasks[$data['id']])) {
                 $task = $tasks[$data['id']];
-                // Защитное удаление незавершенного файла из ФС при чистке списка
                 if ($task['status'] !== 'completed') {
                     $dstDir = realpath($baseDir . '/' . dirname($task['to']));
                     if ($dstDir) @unlink($dstDir . '/' . basename($task['to']));
@@ -195,7 +195,6 @@ switch ($action) {
         }
         echo json_encode(['success' => true]); break;
 
-    // Стандартные файловые операции (оставлены без изменений)
     case 'create_folder':
     case 'create_file':
         checkAccess($targetPath, 'w');

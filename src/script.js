@@ -1,11 +1,29 @@
 const state = { left: { path: '', selection: [] }, right: { path: '', selection: [] } };
 let clipboard = { type: null, files: [], sourcePath: '' };
 let lastCleanupData = null; 
+let sizeFormat = 'human'; // 'human' или 'bytes'
 
 function formatPerms(octal) {
     const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
     const s = octal.slice(-3);
     return Array.from(s).map(n => chars[parseInt(n)] || '???').join('');
+}
+
+function formatSize(bytes) {
+    if (bytes === '-') return '-';
+    if (sizeFormat === 'bytes') return bytes.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") + ' B';
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function toggleSizeFormat(e) {
+    e.stopPropagation(); // Чтобы клик не выделял строку
+    sizeFormat = sizeFormat === 'human' ? 'bytes' : 'human';
+    loadFiles('left');
+    loadFiles('right');
 }
 
 async function init() {
@@ -37,7 +55,7 @@ async function loadFiles(side) {
     
     if (state[side].path !== '') {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td colspan="4" style="color:var(--accent); cursor:pointer">🔙 .. Назад</td>`;
+        tr.innerHTML = `<td colspan="5" style="color:var(--accent); cursor:pointer">🔙 .. Назад</td>`;
         tr.onclick = () => goUp(side);
         list.appendChild(tr);
     }
@@ -46,7 +64,13 @@ async function loadFiles(side) {
         const tr = document.createElement('tr');
         if (oldSel.includes(f.name)) { state[side].selection.push(f.name); tr.classList.add('selected'); }
         if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
-        tr.innerHTML = `<td>${f.isDir?'📁':'📄'} ${f.name}</td><td>${f.owner_group}</td><td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td><td>${f.modified}</td>`;
+        tr.innerHTML = `
+            <td>${f.isDir?'📁':'📄'} ${f.name}</td>
+            <td class="clickable-size" onclick="toggleSizeFormat(event)">${formatSize(f.size)}</td>
+            <td>${f.owner_group}</td>
+            <td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td>
+            <td>${f.modified}</td>
+        `;
         tr.onclick = (e) => toggleSelect(side, f.name, tr, e.ctrlKey);
         tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : openEditor(side, f.name);
         list.appendChild(tr);
@@ -179,7 +203,7 @@ async function saveFile() { const m = document.getElementById('editorModal'); aw
 function openPerms(side) {
     const name = state[side].selection[0];
     const row = document.querySelector(`#pane-${side} tr.selected`);
-    const m = row.cells[2].getAttribute('title').slice(-3);
+    const m = row.cells[3].getAttribute('title').slice(-3); // Индекс сместился из-за новой колонки размера
     const set = (v, r, w, x) => { document.getElementById(r).checked = v & 4; document.getElementById(w).checked = v & 2; document.getElementById(x).checked = v & 1; };
     set(m[0], 'p-u-r', 'p-u-w', 'p-u-x'); set(m[1], 'p-g-r', 'p-g-w', 'p-g-x'); set(m[2], 'p-o-r', 'p-o-w', 'p-o-x');
     updateOctal();
