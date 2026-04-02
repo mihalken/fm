@@ -1,8 +1,13 @@
 let appConfig = {};
-const state = { left: { path: '', selection: [] }, right: { path: '', selection: [] } };
+// Добавили массив files для хранения кэша текущих файлов в стейте
+const state = { left: { path: '', selection: [], files: [] }, right: { path: '', selection: [], files: [] } };
 let clipboard = { type: null, files: [], sourcePath: '' };
 let lastCleanupData = null; 
 let sizeFormat = 'human'; 
+
+// Конфигурация сортировки по умолчанию, либо загрузка из localStorage
+let sortConfig = { left: { col: 'name', dir: 'asc' }, right: { col: 'name', dir: 'asc' } };
+try { const saved = JSON.parse(localStorage.getItem('cc_sort')); if (saved) sortConfig = saved; } catch(e) {}
 
 function formatPerms(octal) {
     const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
@@ -29,6 +34,20 @@ function toggleSizeFormat(e) {
 function gotoPath(side, path) {
     state[side].path = path;
     loadFiles(side);
+}
+
+// Функция смены сортировки
+function changeSort(side, col) {
+    if (sortConfig[side].col === col) {
+        sortConfig[side].dir = sortConfig[side].dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        sortConfig[side].col = col;
+        sortConfig[side].dir = 'asc';
+    }
+    try { localStorage.setItem('cc_sort', JSON.stringify(sortConfig)); } catch(e) {}
+    
+    // Перерисовываем список, используя закешированные файлы
+    renderList(side, { files: state[side].files });
 }
 
 async function gotoTrash(side) {
@@ -88,6 +107,9 @@ function renderList(side, data) {
     
     if (data.error) { showToast(data.error, 'error'); updateToolbar(side); return; }
     
+    // Обновляем кэш файлов, если данные пришли от сервера
+    if (data.files) state[side].files = data.files;
+    
     const list = document.getElementById(`list-${side}`);
     list.innerHTML = '';
     
@@ -98,7 +120,25 @@ function renderList(side, data) {
         list.appendChild(tr);
     }
 
-    data.files?.forEach(f => {
+    // Логика клиентской сортировки
+    let filesToRender = [...state[side].files];
+    const { col, dir } = sortConfig[side];
+    const mult = dir === 'asc' ? 1 : -1;
+    
+    filesToRender.sort((a, b) => {
+        if (a.isDir !== b.isDir) return b.isDir ? 1 : -1; // Папки всегда выше
+        if (col === 'name') return mult * a.name.localeCompare(b.name);
+        if (col === 'date') return mult * (a.mtime - b.mtime);
+        return 0;
+    });
+
+    // Обновляем иконки сортировки в заголовках таблиц
+    ['name', 'date'].forEach(c => {
+        const el = document.getElementById(`sort-${side}-${c}`);
+        if (el) el.innerText = (c === col) ? (dir === 'asc' ? ' ▲' : ' ▼') : '';
+    });
+
+    filesToRender.forEach(f => {
         const tr = document.createElement('tr');
         if (oldSel.includes(f.name)) { state[side].selection.push(f.name); tr.classList.add('selected'); }
         if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
@@ -261,7 +301,6 @@ async function apiCall(action, side, body = {}) {
     
     if (data.error) showToast(data.error, 'error');
     
-    // Если сервер сообщает, что начат фоновый перенос в корзину
     if (data.trash_started) {
         lastCleanupData = data.trash_cleanup;
         showToast("Перемещение в корзину запущено в фоне");

@@ -1,7 +1,8 @@
 <?php
 $config = require 'config.php';
 
-$tzString = !empty($config['timezone']) ? $config['timezone'] : (ini_get('date.timezone') ?: date_default_timezone_get());
+// Получаем таймзону только из настроек сервера
+$tzString = ini_get('date.timezone') ?: date_default_timezone_get();
 date_default_timezone_set($tzString);
 
 try {
@@ -137,14 +138,14 @@ function handleAction($action, $path, $data, $targetPath) {
                         'size' => is_dir($fp) ? '-' : (filesize($fp) ?: 0),
                         'owner_group' => ($owner ?: '???') . ':' . ($group ?: '???'),
                         'perms' => substr(sprintf('%o', fileperms($fp)), -4),
-                        'modified' => $dt->format('d.m.Y H:i:s')
+                        'modified' => $dt->format('d.m.Y H:i:s'),
+                        'mtime' => $stat['mtime']
                     ];
                 }
             }
             usort($files, fn($a, $b) => $b['isDir'] - $a['isDir'] ?: strcasecmp($a['name'], $b['name']));
             return ['files' => $files];
 
-        // ОБЪЕДИНЕННЫЙ БЛОК: Перенос файлов и Удаление
         case 'transfer_os': 
         case 'delete':
             $isDelete = ($action === 'delete');
@@ -156,7 +157,6 @@ function handleAction($action, $path, $data, $targetPath) {
                 $permanentDelete = [];
                 $moveToTrash = [];
                 
-                // Сортируем: что удалять навсегда, а что в корзину
                 foreach ($data['names'] as $name) {
                     $p = normalizePath($targetPath . '/' . basename($name));
                     checkLock($p);
@@ -170,18 +170,15 @@ function handleAction($action, $path, $data, $targetPath) {
                     }
                 }
                 
-                // Выполняем безвозвратное удаление
                 foreach ($permanentDelete as $name) {
                     $p = normalizePath($targetPath . '/' . basename($name));
                     is_dir($p) ? shell_exec("rm -rf ".escapeshellarg($p)) : @unlink($p);
                 }
                 
-                // Если в корзину ничего переносить не надо - завершаем
                 if (empty($moveToTrash)) {
                     return ['success' => true];
                 }
                 
-                // Иначе подготавливаем переменные для переноса (transfer_os)
                 $data['from_path'] = $path;
                 $data['to_path'] = '.trash';
                 $data['names'] = $moveToTrash;
@@ -189,13 +186,11 @@ function handleAction($action, $path, $data, $targetPath) {
                 
                 if (!is_dir($trashPath)) @mkdir($trashPath, 0777, true);
             } else {
-                // Если это обычный перенос, и цель корзина - создаем её
                 if ($data['to_path'] === '.trash' && !is_dir($trashPath)) {
                     @mkdir($trashPath, 0777, true);
                 }
             }
 
-            // --- ОБЩАЯ ЛОГИКА ФОНОВОГО ПЕРЕНОСА (ОБЩАЯ ДЛЯ DELETE И TRANSFER) ---
             $srcBase = getSafePath($baseDir, $data['from_path']);
             $dstBase = getSafePath($baseDir, $data['to_path']);
             checkAccess($dstBase, 'w');
@@ -279,7 +274,6 @@ function handleAction($action, $path, $data, $targetPath) {
                 exec($cmd);
             }
 
-            // Передаем клиенту команду на запуск процесса очистки пустых папок после завершения фоновых задач
             if ($isDelete) {
                  return [
                     'success' => true,

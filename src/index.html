@@ -35,11 +35,11 @@
             <table class="file-table">
                 <thead>
                     <tr>
-                        <th id="th-name-left">Имя</th>
+                        <th onclick="changeSort('left', 'name')" style="cursor:pointer; user-select:none;" title="Сортировка по имени">Имя <span id="sort-left-name"></span></th>
                         <th>Размер</th>
                         <th>Владелец</th>
                         <th>Права</th>
-                        <th>Дата</th>
+                        <th onclick="changeSort('left', 'date')" style="cursor:pointer; user-select:none;" title="Сортировка по дате">Дата <span id="sort-left-date"></span></th>
                     </tr>
                 </thead>
                 <tbody id="list-left"></tbody>
@@ -71,11 +71,11 @@
             <table class="file-table">
                 <thead>
                     <tr>
-                        <th id="th-name-right">Имя</th>
+                        <th onclick="changeSort('right', 'name')" style="cursor:pointer; user-select:none;" title="Сортировка по имени">Имя <span id="sort-right-name"></span></th>
                         <th>Размер</th>
                         <th>Владелец</th>
                         <th>Права</th>
-                        <th>Дата</th>
+                        <th onclick="changeSort('right', 'date')" style="cursor:pointer; user-select:none;" title="Сортировка по дате">Дата <span id="sort-right-date"></span></th>
                     </tr>
                 </thead>
                 <tbody id="list-right"></tbody>
