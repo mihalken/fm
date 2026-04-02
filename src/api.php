@@ -2,6 +2,16 @@
 $config = require 'config.php';
 header('Content-Type: application/json');
 
+$tzString = !empty($config['timezone']) ? $config['timezone'] : (ini_get('date.timezone') ?: date_default_timezone_get());
+
+date_default_timezone_set($tzString);
+
+try {
+    $serverTimeZone = new DateTimeZone($tzString);
+} catch (Exception $e) {
+    $serverTimeZone = new DateTimeZone('UTC');
+}
+
 $baseDir = realpath($config['base_dir']);
 if (!$baseDir) {
     @mkdir($config['base_dir'], 0777, true);
@@ -95,9 +105,8 @@ function scanDirRecursive($dir, $baseLen) {
     return $result;
 }
 
-// === ЦЕНТРАЛЬНЫЙ ОБРАБОТЧИК ЗАПРОСОВ ===
 function handleAction($action, $path, $data, $targetPath) {
-    global $config, $baseDir;
+    global $config, $baseDir, $serverTimeZone;
 
     switch ($action) {
         case 'init':
@@ -120,12 +129,17 @@ function handleAction($action, $path, $data, $targetPath) {
                     if (!$stat) continue;
                     $owner = function_exists('posix_getpwuid') ? @posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
                     $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
+                    
+                    // Переводим время модификации в выбранную часовую зону
+                    $dt = new DateTime('@' . $stat['mtime']);
+                    $dt->setTimezone($serverTimeZone);
+
                     $files[] = [
                         'name' => $file, 'isDir' => is_dir($fp),
                         'size' => is_dir($fp) ? '-' : (filesize($fp) ?: 0),
                         'owner_group' => ($owner ?: '???') . ':' . ($group ?: '???'),
                         'perms' => substr(sprintf('%o', fileperms($fp)), -4),
-                        'modified' => date("Y-m-d H:i", $stat['mtime'])
+                        'modified' => $dt->format('d.m.Y H:i:s')
                     ];
                 }
             }
@@ -331,11 +345,9 @@ function handleAction($action, $path, $data, $targetPath) {
     }
 }
 
-// === ТОЧКА ВХОДА ===
 try {
     $action = $_GET['action'] ?? '';
     
-    // Пакетная обработка (Batching)
     if ($action === 'batch') {
         $input = json_decode(file_get_contents('php://input'), true);
         $responses = [];
@@ -354,7 +366,6 @@ try {
         }
         echo json_encode(['responses' => $responses]);
     } 
-    // Одиночный запрос
     else {
         $path = $_GET['path'] ?? '';
         $targetPath = getSafePath($baseDir, $path);

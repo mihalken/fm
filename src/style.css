@@ -23,34 +23,21 @@ body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 10px; ba
 .breadcrumb-sep { color: #888; margin: 0 4px; font-size: 12px; }
 
 .file-table-wrapper { flex-grow: 1; overflow: auto; }
-.file-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; user-select: none; }
-.file-table th { background: var(--header-bg); text-align: left; padding: 8px; position: sticky; top: 0; z-index: 10; }
-.file-table td { padding: 8px; border-bottom: 1px solid var(--border-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-table { width: 100%; border-collapse: collapse; font-size: 13px; user-select: none; }
+.file-table th { background: var(--header-bg); text-align: left; padding: 8px; position: sticky; top: 0; z-index: 10; white-space: nowrap; }
+.file-table td { padding: 8px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+
+.file-table th:not(:first-child) { width: 1%; }
+.file-table td:first-child:not([colspan]) { max-width: 1px; overflow: hidden; text-overflow: ellipsis; }
+
 .file-table tr.selected { background: var(--selected-bg) !important; }
 .file-table tr.clipboard-cut { opacity: 0.4; }
-
-/* Стили для изменения ширины колонок */
-.file-table th { position: relative; }
-.resizer {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 5px;
-    height: 100%;
-    cursor: col-resize;
-    user-select: none;
-    background-color: transparent;
-}
-.resizer:hover, .resizer.dragging {
-    background-color: var(--accent);
-    opacity: 0.5;
-}
 
 .clickable-size { cursor: pointer; }
 .clickable-size:hover { text-decoration: underline; color: var(--accent); }
 
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 2000; }
-.modal { background: var(--pane-bg); color: var(--text-color); padding: 20px; border-radius: 8px; width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.modal { background: var(--pane-bg); color: var(--text-color); padding: 20px; border-radius: 8px; width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); box-sizing: border-box; }
 .modal.large { width: 90%; max-width: 1000px; }
 .perms-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; margin: 15px 0; align-items: center; }
 .editor-area { width: 100%; height: 450px; background: #1e1e1e; color: #d4d4d4; font-family: 'Consolas', monospace; padding: 10px; border: 1px solid var(--border-color); box-sizing: border-box; resize: none; margin-top: 10px; font-size: 14px; }
@@ -59,10 +46,43 @@ body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 10px; ba
 .toast { background: #333; color: #fff; padding: 12px 20px; border-radius: 4px; margin-top: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
 .toast.error { background: #dc3545; }
 
-.tasks-container { position: fixed; bottom: 20px; left: 20px; width: 320px; z-index: 9999; display: none; flex-direction: column; gap: 10px; }
+.tasks-container { position: fixed; bottom: 20px; left: 20px; width: 320px; max-width: 90%; z-index: 9999; display: none; flex-direction: column; gap: 10px; }
 .task-card { background: var(--pane-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
 .task-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-color); }
 .task-progress-bg { background: var(--header-bg); height: 8px; border-radius: 4px; overflow: hidden; border: 1px solid var(--border-color); }
 .task-progress-fill { background: var(--accent); height: 100%; width: 0%; transition: width 0.3s, background-color 0.3s; }
 .task-btn { background: none; border: none; color: var(--text-color); cursor: pointer; font-size: 14px; padding: 0 4px; }
 .task-btn:hover { opacity: 0.7; }
+
+/* === МОБИЛЬНАЯ ВЕРСИЯ === */
+@media (max-width: 768px) {
+    body {
+        height: auto;
+        overflow: auto;
+        padding: 5px;
+    }
+    .panes-container {
+        flex-direction: column;
+        overflow: visible;
+    }
+    .pane {
+        min-height: 50vh;
+        margin-bottom: 10px;
+        flex: none;
+    }
+    .toolbar {
+        flex-wrap: wrap;
+    }
+    .file-table th:nth-child(3), .file-table td:nth-child(3), /* Скрываем Владельца */
+    .file-table th:nth-child(4), .file-table td:nth-child(4)  /* Скрываем Права */ {
+        display: none;
+    }
+    .modal {
+        width: 95%;
+        padding: 15px;
+    }
+    .perms-grid {
+        font-size: 14px;
+        gap: 5px;
+    }
+}

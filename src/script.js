@@ -31,49 +31,12 @@ function gotoPath(side, path) {
     loadFiles(side);
 }
 
-function initResizer(side) {
-    const th = document.getElementById(`th-name-${side}`);
-    if (!th) return;
-    const resizer = th.querySelector('.resizer');
-    
-    const savedWidth = localStorage.getItem(`name-col-width-${side}`);
-    if (savedWidth) th.style.width = savedWidth + 'px';
-
-    let x = 0;
-    let w = 0;
-
-    const mouseDownHandler = function(e) {
-        x = e.clientX;
-        w = th.offsetWidth;
-        document.addEventListener('mousemove', mouseMoveHandler);
-        document.addEventListener('mouseup', mouseUpHandler);
-        resizer.classList.add('dragging');
-    };
-
-    const mouseMoveHandler = function(e) {
-        const dx = e.clientX - x;
-        th.style.width = `${w + dx}px`;
-    };
-
-    const mouseUpHandler = function() {
-        resizer.classList.remove('dragging');
-        document.removeEventListener('mousemove', mouseMoveHandler);
-        document.removeEventListener('mouseup', mouseUpHandler);
-        localStorage.setItem(`name-col-width-${side}`, th.offsetWidth);
-    };
-
-    resizer.addEventListener('mousedown', mouseDownHandler);
-}
-
 async function init() {
     const res = await fetch('api.php?action=init');
     appConfig = await res.json(); 
     document.body.setAttribute('data-theme', appConfig.theme);
     state.left.path = appConfig.panes.left;
     state.right.path = appConfig.panes.right;
-
-    initResizer('left');
-    initResizer('right');
 
     if (appConfig.refresh_interval > 0) {
         setInterval(reloadBoth, appConfig.refresh_interval * 1000);
@@ -84,7 +47,6 @@ async function init() {
     reloadBoth();
 }
 
-// Пакетная загрузка обеих панелей одним запросом к бэкенду
 async function reloadBoth() {
     const res = await fetch('api.php?action=batch', {
         method: 'POST',
@@ -108,7 +70,6 @@ async function loadFiles(side) {
     renderList(side, data);
 }
 
-// Вынесена логика рендера для удобства использования пакетной обработки
 function renderList(side, data) {
     const oldSel = [...state[side].selection]; 
     state[side].selection = [];
@@ -130,7 +91,7 @@ function renderList(side, data) {
         if (oldSel.includes(f.name)) { state[side].selection.push(f.name); tr.classList.add('selected'); }
         if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
         tr.innerHTML = `
-            <td>${f.isDir?'📁':'📄'} ${f.name}</td>
+            <td title="${f.name}">${f.isDir?'📁':'📄'} ${f.name}</td>
             <td class="clickable-size" onclick="toggleSizeFormat(event)">${formatSize(f.size)}</td>
             <td>${f.owner_group}</td>
             <td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td>
@@ -205,7 +166,7 @@ async function pollTasks() {
     const taskList = Object.values(tasks);
     if (taskList.length === 0) {
         if (container.style.display === 'flex') {
-            reloadBoth(); // Одно обновление вместо двух
+            reloadBoth(); 
             if (lastCleanupData) {
                 fetch('api.php?action=cleanup_dirs', { method: 'POST', body: JSON.stringify(lastCleanupData) });
                 lastCleanupData = null;
@@ -275,7 +236,7 @@ async function apiCall(action, side, body = {}) {
     
     if (data.error) showToast(data.error, 'error');
     
-    reloadBoth(); // Одно обновление вместо двух
+    reloadBoth(); 
 }
 
 function showToast(m, t='') {
@@ -293,14 +254,14 @@ function doCreateObj(s, type) { const n = prompt(type === 'folder' ? "Имя п�
 async function openEditor(side, fileName, fileSize) {
     const limit = appConfig.max_edit_size || (1024 * 1024);
     if (fileSize !== undefined && fileSize > limit) {
-        if (!confirm(`Размер файла (${formatSize(fileSize)}) превышает установленный лимит. Открытие больших файлов может привести к зависанию страницы.\n\nВы уверены, что хотите продолжить?`)) {
+        if (!confirm(`Размер файла (${formatSize(fileSize)}) превышает установленный лимит.\n\nВы уверены, что хотите продолжить?`)) {
             return;
         }
     }
 
     const res = await fetch(`api.php?action=read_file&path=${encodeURIComponent(state[side].path)}`, {
         method: 'POST',
-        body: JSON.stringify({ name: fileName }) // Теперь передаем имя в JSON body для гибкости
+        body: JSON.stringify({ name: fileName }) 
     });
     const data = await res.json();
     if (data.error) { showToast(data.error, 'error'); return; }
@@ -333,6 +294,7 @@ function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 function enterFolder(s, n) { state[s].path += (state[s].path ? '/' : '') + n; loadFiles(s); }
 function goUp(s) { let p = state[s].path.split('/'); p.pop(); state[s].path = p.join('/'); loadFiles(s); }
 function triggerUpload(s) { document.getElementById(`file-input-${s}`).click(); }
+
 async function handleUpload(s, i) {
     if (!i.files || i.files.length === 0) return;
     const fd = new FormData(); fd.append('file', i.files[0]);
