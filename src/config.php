@@ -1,8 +1,9 @@
 <?php
 return [
-    'panes' => ['left' => '', 'right' => ''],
+    'panes' => ['left' => 'a', 'right' => 'b'],
     'theme' => 'dark',
     'base_dir' => __DIR__ . '/uploads',
-    'refresh_interval' => 30,
-    'tasks_file' => __DIR__ . '/tasks.json'
+    'refresh_interval' => 5,
+    'tasks_file' => __DIR__ . '/tasks.json',
+    'chunk_size' => 10 * 1024 * 1024 // Размер чанка при копировании (в байтах)
 ];

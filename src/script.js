@@ -1,7 +1,7 @@
 const state = { left: { path: '', selection: [] }, right: { path: '', selection: [] } };
 let clipboard = { type: null, files: [], sourcePath: '' };
 let lastCleanupData = null; 
-let sizeFormat = 'human'; // 'human' или 'bytes'
+let sizeFormat = 'human'; 
 
 function formatPerms(octal) {
     const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
@@ -20,7 +20,7 @@ function formatSize(bytes) {
 }
 
 function toggleSizeFormat(e) {
-    e.stopPropagation(); // Чтобы клик не выделял строку
+    e.stopPropagation(); 
     sizeFormat = sizeFormat === 'human' ? 'bytes' : 'human';
     loadFiles('left');
     loadFiles('right');
@@ -176,7 +176,9 @@ async function apiCall(action, side, body = {}) {
     const res = await fetch(`api.php?action=${action}&path=${encodeURIComponent(state[side].path)}`, { method: 'POST', body: JSON.stringify(body) });
     const data = await res.json();
     if (data.confirm && confirm(data.confirm)) return apiCall(action, side, {...body, overwrite: true});
+    
     if (data.error) showToast(data.error, 'error');
+    
     loadFiles('left'); loadFiles('right');
 }
 
@@ -195,6 +197,7 @@ function doCreateObj(s, type) { const n = prompt(type === 'folder' ? "Имя п�
 async function openEditor(side, fileName) {
     const res = await fetch(`api.php?action=read_file&path=${encodeURIComponent(state[side].path)}&name=${encodeURIComponent(fileName)}`);
     const data = await res.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
     document.getElementById('editorTitle').innerText = fileName; document.getElementById('editorContent').value = data.content;
     const m = document.getElementById('editorModal'); m.dataset.side = side; m.dataset.name = fileName; m.style.display = 'flex';
 }
@@ -203,7 +206,7 @@ async function saveFile() { const m = document.getElementById('editorModal'); aw
 function openPerms(side) {
     const name = state[side].selection[0];
     const row = document.querySelector(`#pane-${side} tr.selected`);
-    const m = row.cells[3].getAttribute('title').slice(-3); // Индекс сместился из-за новой колонки размера
+    const m = row.cells[3].getAttribute('title').slice(-3);
     const set = (v, r, w, x) => { document.getElementById(r).checked = v & 4; document.getElementById(w).checked = v & 2; document.getElementById(x).checked = v & 1; };
     set(m[0], 'p-u-r', 'p-u-w', 'p-u-x'); set(m[1], 'p-g-r', 'p-g-w', 'p-g-x'); set(m[2], 'p-o-r', 'p-o-w', 'p-o-x');
     updateOctal();
@@ -224,6 +227,7 @@ async function handleUpload(s, i) {
     const res = await fetch(`api.php?action=upload&path=${encodeURIComponent(state[s].path)}`, { method: 'POST', body: fd });
     const data = await res.json();
     if (data.confirm && confirm(data.confirm)) { fd.append('overwrite', 'true'); await fetch(`api.php?action=upload&path=${encodeURIComponent(state[s].path)}`, { method: 'POST', body: fd }); }
+    else if (data.error) showToast(data.error, 'error');
     i.value = ''; loadFiles(s);
 }
 document.addEventListener('DOMContentLoaded', init);

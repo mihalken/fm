@@ -7,6 +7,7 @@ if (!$taskId) die("Не указан ID задачи");
 $config = require __DIR__ . '/config.php';
 $tasksFile = $config['tasks_file'];
 $baseDir = realpath($config['base_dir']);
+$chunkSize = $config['chunk_size'] ?? (2 * 1024 * 1024);
 
 function updateTask($taskId, $callback) {
     global $tasksFile;
@@ -29,19 +30,15 @@ function updateTask($taskId, $callback) {
     return $ret;
 }
 
-$chunkSize = 1024 * 1024 * 2;
-
 while (true) {
     $task = updateTask($taskId, function($t) { return $t; }); 
     
     if (!$task) break;
 
-    // Перехват отмены и физическое удаление недокачанного файла
     if ($task['status'] === 'cancel' || $task['status'] === 'cancelled') {
         $dstDir = realpath($baseDir . '/' . dirname($task['to']));
         if ($dstDir) @unlink($dstDir . '/' . basename($task['to'])); 
         
-        // Меняем статус на 'cancelled', чтобы фронтенд обновил иконку
         if ($task['status'] === 'cancel') {
             updateTask($taskId, function($t) { 
                 $t['status'] = 'cancelled'; 
