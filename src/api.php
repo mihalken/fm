@@ -102,7 +102,10 @@ $targetPath = getSafePath($baseDir, $path);
 switch ($action) {
     case 'init':
         echo json_encode([
-            'theme' => $config['theme'], 'refresh_interval' => $config['refresh_interval'], 'panes' => $config['panes']
+            'theme' => $config['theme'], 
+            'refresh_interval' => $config['refresh_interval'], 
+            'panes' => $config['panes'],
+            'max_edit_size' => $config['max_edit_size'] ?? 1048576
         ]); break;
 
     case 'list':
@@ -140,7 +143,6 @@ switch ($action) {
             $srcPath = rtrim(normalizePath($srcBase . '/' . basename($name)), '/');
             $dstFolder = rtrim(normalizePath($dstBase), '/');
             
-            // --- ЛОГИКА АВТОМАТИЧЕСКОГО ПЕРЕИМЕНОВАНИЯ ПРИ СОВПАДЕНИИ ---
             $originalBaseName = basename($name);
             $newBaseName = $originalBaseName;
             $counter = 1;
@@ -148,7 +150,6 @@ switch ($action) {
             while (file_exists($dstBase . '/' . $newBaseName)) {
                 $info = pathinfo($originalBaseName);
                 $isDir = is_dir($srcPath);
-                // Для папок расширение не выделяем, чтобы не сломать "my.folder" -> "my (копия 1).folder"
                 $ext = (isset($info['extension']) && !$isDir) ? '.' . $info['extension'] : '';
                 $filename = $isDir ? $originalBaseName : $info['filename'];
                 
@@ -170,7 +171,6 @@ switch ($action) {
                 
                 $subItems = scanDirRecursive($srcPath, strlen($srcBase));
                 foreach ($subItems as $item) {
-                    // Подменяем имя родительской папки в путях внутренних файлов
                     $parts = explode('/', $item['rel_path'], 2);
                     $parts[0] = $newBaseName; 
                     $remappedRelPath = implode('/', $parts);
@@ -278,6 +278,13 @@ switch ($action) {
     case 'read_file':
         checkAccess($targetPath, 'r');
         $fp = $targetPath . '/' . basename($_GET['name']);
+        
+        // --- ЗАЩИТА ОТ ОТКРЫТИЯ БИНАРНЫХ ФАЙЛОВ ---
+        $header = @file_get_contents($fp, false, null, 0, 1024);
+        if (strpos($header, "\0") !== false) {
+            die(json_encode(['error' => 'Отклонено: файл является бинарным и не может быть открыт в текстовом редакторе.']));
+        }
+        
         echo json_encode(['content' => @file_get_contents($fp)]); break;
 
     case 'save_file':

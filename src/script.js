@@ -1,3 +1,4 @@
+let appConfig = {};
 const state = { left: { path: '', selection: [] }, right: { path: '', selection: [] } };
 let clipboard = { type: null, files: [], sourcePath: '' };
 let lastCleanupData = null; 
@@ -31,13 +32,11 @@ function gotoPath(side, path) {
     loadFiles(side);
 }
 
-// Функция инициализации изменения размера колонки "Имя"
 function initResizer(side) {
     const th = document.getElementById(`th-name-${side}`);
     if (!th) return;
     const resizer = th.querySelector('.resizer');
     
-    // Восстановление сохраненной ширины
     const savedWidth = localStorage.getItem(`name-col-width-${side}`);
     if (savedWidth) th.style.width = savedWidth + 'px';
 
@@ -61,7 +60,6 @@ function initResizer(side) {
         resizer.classList.remove('dragging');
         document.removeEventListener('mousemove', mouseMoveHandler);
         document.removeEventListener('mouseup', mouseUpHandler);
-        // Сохраняем новую ширину
         localStorage.setItem(`name-col-width-${side}`, th.offsetWidth);
     };
 
@@ -70,17 +68,16 @@ function initResizer(side) {
 
 async function init() {
     const res = await fetch('api.php?action=init');
-    const config = await res.json();
-    document.body.setAttribute('data-theme', config.theme);
-    state.left.path = config.panes.left;
-    state.right.path = config.panes.right;
+    appConfig = await res.json(); // Сохраняем глобально настройки с сервера
+    document.body.setAttribute('data-theme', appConfig.theme);
+    state.left.path = appConfig.panes.left;
+    state.right.path = appConfig.panes.right;
 
-    // Инициализация ресайзеров таблиц
     initResizer('left');
     initResizer('right');
 
-    if (config.refresh_interval > 0) {
-        setInterval(() => { loadFiles('left'); loadFiles('right'); }, config.refresh_interval * 1000);
+    if (appConfig.refresh_interval > 0) {
+        setInterval(() => { loadFiles('left'); loadFiles('right'); }, appConfig.refresh_interval * 1000);
     }
     
     setInterval(pollTasks, 1000); 
@@ -118,7 +115,8 @@ async function loadFiles(side) {
             <td>${f.modified}</td>
         `;
         tr.onclick = (e) => toggleSelect(side, f.name, tr, e.ctrlKey);
-        tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : openEditor(side, f.name);
+        // Передаем размер файла (f.size) для проверки лимита перед открытием
+        tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : openEditor(side, f.name, f.size);
         list.appendChild(tr);
     });
     
@@ -271,13 +269,27 @@ function doDelete(s) { if(confirm('Удалить выбранное?')) apiCall
 function doRename(s) { const old = state[s].selection[0]; const n = prompt("Новое имя:", old); if(n) apiCall('rename', s, { old_name: old, new_name: n }); }
 function doCreateObj(s, type) { const n = prompt(type === 'folder' ? "Имя папки:" : "Имя файла:"); if(n) apiCall(type === 'folder' ? 'create_folder' : 'create_file', s, { name: n }); }
 
-async function openEditor(side, fileName) {
+// Обновленная функция открытия редактора с проверкой размера
+async function openEditor(side, fileName, fileSize) {
+    const limit = appConfig.max_edit_size || (1024 * 1024);
+    if (fileSize !== undefined && fileSize > limit) {
+        if (!confirm(`Размер файла (${formatSize(fileSize)}) превышает установленный лимит. Открытие больших файлов может привести к зависанию страницы.\n\nВы уверены, что хотите продолжить?`)) {
+            return;
+        }
+    }
+
     const res = await fetch(`api.php?action=read_file&path=${encodeURIComponent(state[side].path)}&name=${encodeURIComponent(fileName)}`);
     const data = await res.json();
     if (data.error) { showToast(data.error, 'error'); return; }
-    document.getElementById('editorTitle').innerText = fileName; document.getElementById('editorContent').value = data.content;
-    const m = document.getElementById('editorModal'); m.dataset.side = side; m.dataset.name = fileName; m.style.display = 'flex';
+    
+    document.getElementById('editorTitle').innerText = fileName; 
+    document.getElementById('editorContent').value = data.content;
+    const m = document.getElementById('editorModal'); 
+    m.dataset.side = side; 
+    m.dataset.name = fileName; 
+    m.style.display = 'flex';
 }
+
 async function saveFile() { const m = document.getElementById('editorModal'); await apiCall('save_file', m.dataset.side, { name: m.dataset.name, content: document.getElementById('editorContent').value }); closeModal('editorModal'); }
 
 function openPerms(side) {
