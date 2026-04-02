@@ -15,6 +15,11 @@
 * dark theme
 * adaptive design
 
+### Platforms
+* *nix only
+* php 8.2 (min cli)
+* php modules: zip
+
 ### Config
 ~$ nano src/config.php
 

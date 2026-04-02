@@ -1,11 +1,10 @@
 let appConfig = {};
-// Добавили массив files для хранения кэша текущих файлов в стейте
 const state = { left: { path: '', selection: [], files: [] }, right: { path: '', selection: [], files: [] } };
 let clipboard = { type: null, files: [], sourcePath: '' };
 let lastCleanupData = null; 
 let sizeFormat = 'human'; 
+let deleteTargetSide = null; // Для сохранения панели при открытии модального окна удаления
 
-// Конфигурация сортировки по умолчанию, либо загрузка из localStorage
 let sortConfig = { left: { col: 'name', dir: 'asc' }, right: { col: 'name', dir: 'asc' } };
 try { const saved = JSON.parse(localStorage.getItem('cc_sort')); if (saved) sortConfig = saved; } catch(e) {}
 
@@ -36,7 +35,6 @@ function gotoPath(side, path) {
     loadFiles(side);
 }
 
-// Функция смены сортировки
 function changeSort(side, col) {
     if (sortConfig[side].col === col) {
         sortConfig[side].dir = sortConfig[side].dir === 'asc' ? 'desc' : 'asc';
@@ -45,8 +43,6 @@ function changeSort(side, col) {
         sortConfig[side].dir = 'asc';
     }
     try { localStorage.setItem('cc_sort', JSON.stringify(sortConfig)); } catch(e) {}
-    
-    // Перерисовываем список, используя закешированные файлы
     renderList(side, { files: state[side].files });
 }
 
@@ -106,8 +102,6 @@ function renderList(side, data) {
     state[side].selection = [];
     
     if (data.error) { showToast(data.error, 'error'); updateToolbar(side); return; }
-    
-    // Обновляем кэш файлов, если данные пришли от сервера
     if (data.files) state[side].files = data.files;
     
     const list = document.getElementById(`list-${side}`);
@@ -120,19 +114,17 @@ function renderList(side, data) {
         list.appendChild(tr);
     }
 
-    // Логика клиентской сортировки
     let filesToRender = [...state[side].files];
     const { col, dir } = sortConfig[side];
     const mult = dir === 'asc' ? 1 : -1;
     
     filesToRender.sort((a, b) => {
-        if (a.isDir !== b.isDir) return b.isDir ? 1 : -1; // Папки всегда выше
+        if (a.isDir !== b.isDir) return b.isDir ? 1 : -1; 
         if (col === 'name') return mult * a.name.localeCompare(b.name);
         if (col === 'date') return mult * (a.mtime - b.mtime);
         return 0;
     });
 
-    // Обновляем иконки сортировки в заголовках таблиц
     ['name', 'date'].forEach(c => {
         const el = document.getElementById(`sort-${side}-${c}`);
         if (el) el.innerText = (c === col) ? (dir === 'asc' ? ' ▲' : ' ▼') : '';
@@ -243,7 +235,11 @@ async function pollTasks() {
     
     container.style.display = 'flex';
     container.innerHTML = taskList.map(t => {
+        const isNative = (t.native === true) && (t.status === 'running');
         const percent = t.size === 0 ? 100 : Math.round((t.offset / t.size) * 100);
+        
+        const displayPercent = isNative ? 'ОС...' : `${percent}%`;
+        const widthPercent = isNative ? 100 : percent;
         
         let statusIcon = '🔄';
         if (t.status === 'completed') statusIcon = '✅';
@@ -254,7 +250,7 @@ async function pollTasks() {
         return `
             <div class="task-card">
                 <div class="task-header">
-                    <span title="${t.name}">${statusIcon} ${t.type==='copy'?'Копия':'Перенос'}: ${t.name.split('/').pop()} (${percent}%)</span>
+                    <span title="${t.name}">${statusIcon} ${t.type==='copy'?'Копия':'Перенос'}: ${t.name.split('/').pop()} (${displayPercent})</span>
                     <div>
                         ${t.status === 'running' || t.status === 'paused' ? 
                             `<button class="task-btn" onclick="controlTask('${t.id}', '${t.status === 'paused' ? 'running' : 'paused'}')" title="Пауза">⏸️</button>
@@ -263,7 +259,11 @@ async function pollTasks() {
                         }
                     </div>
                 </div>
-                <div class="task-progress-bg"><div class="task-progress-fill" style="width:${percent}%; background:${t.status==='error'||t.status==='cancelled'?'#dc3545':(t.status==='completed'?'#28a745':'var(--accent)')}"></div></div>
+                <div class="task-progress-bg">
+                    <div class="task-progress-fill ${isNative ? 'native-progress' : ''}" 
+                         style="width:${widthPercent}%; background:${t.status==='error'||t.status==='cancelled'?'#dc3545':(t.status==='completed'?'#28a745':'var(--accent)')}">
+                    </div>
+                </div>
             </div>
         `;
     }).join('');
@@ -321,8 +321,22 @@ function addToClipboard(side, type) { clipboard = { type, files: [...state[side]
 
 function doDelete(s) { 
     const isTrash = state[s].path.split('/')[0] === '.trash';
-    const msg = (appConfig.use_trash && !isTrash) ? 'Переместить в корзину?' : 'Удалить НАВСЕГДА?';
-    if(confirm(msg)) apiCall('delete', s, { names: state[s].selection }); 
+    if (appConfig.use_trash && !isTrash) {
+        deleteTargetSide = s;
+        document.getElementById('deleteModal').style.display = 'flex';
+    } else {
+        if(confirm('Удалить выбранные файлы НАВСЕГДА?')) {
+            apiCall('delete', s, { names: state[s].selection, force_delete: true });
+        }
+    }
+}
+
+function executeDelete(mode) {
+    closeModal('deleteModal');
+    apiCall('delete', deleteTargetSide, { 
+        names: state[deleteTargetSide].selection, 
+        force_delete: (mode === 'permanent') 
+    });
 }
 
 function doRename(s) { const old = state[s].selection[0]; const n = prompt("Новое имя:", old); if(n) apiCall('rename', s, { old_name: old, new_name: n }); }

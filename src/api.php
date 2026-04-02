@@ -1,7 +1,6 @@
 <?php
 $config = require 'config.php';
 
-// Получаем таймзону только из настроек сервера
 $tzString = ini_get('date.timezone') ?: date_default_timezone_get();
 date_default_timezone_set($tzString);
 
@@ -156,6 +155,8 @@ function handleAction($action, $path, $data, $targetPath) {
                 checkAccess($targetPath, 'w');
                 $permanentDelete = [];
                 $moveToTrash = [];
+                // Проверяем флаг принудительного удаления от клиента
+                $forceDelete = !empty($data['force_delete']); 
                 
                 foreach ($data['names'] as $name) {
                     $p = normalizePath($targetPath . '/' . basename($name));
@@ -163,7 +164,8 @@ function handleAction($action, $path, $data, $targetPath) {
                     $isTrashFolder = ($p === $trashPath);
                     $isInTrash = strpos($p, $trashPath . '/') === 0;
                     
-                    if ($useTrash && !$isTrashFolder && !$isInTrash) {
+                    // Если корзина включена, файл не в корзине, и не нажата кнопка "Удалить навсегда"
+                    if ($useTrash && !$isTrashFolder && !$isInTrash && !$forceDelete) {
                         $moveToTrash[] = basename($name);
                     } else {
                         $permanentDelete[] = basename($name);

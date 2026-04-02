@@ -84,6 +84,18 @@
     </div>
 </div>
 
+<div id="deleteModal" class="modal-overlay">
+    <div class="modal">
+        <h3>🗑️ Удаление файлов</h3>
+        <p style="margin-top: 10px; font-size: 14px;">Выбранные файлы можно безопасно переместить в корзину или удалить безвозвратно.</p>
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+            <button onclick="closeModal('deleteModal')">Отмена</button>
+            <button onclick="executeDelete('permanent')" style="background:#dc3545; color:#fff; border:none; padding:8px 15px; border-radius:4px; cursor:pointer" title="Не подлежит восстановлению">Навсегда</button>
+            <button onclick="executeDelete('trash')" style="background:var(--accent); color:#fff; border:none; padding:8px 15px; border-radius:4px; cursor:pointer">В корзину</button>
+        </div>
+    </div>
+</div>
+
 <div id="editorModal" class="modal-overlay">
     <div class="modal large">
         <h3>📄 Редактор: <span id="editorTitle"></span></h3>

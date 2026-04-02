@@ -1,105 +1,117 @@
 <?php
-if (php_sapi_name() !== 'cli') die("Только для CLI");
-
-$taskId = $argv[1] ?? null;
-if (!$taskId) die("Не указан ID задачи");
+$taskId = $argv[1] ?? '';
+if (!$taskId) exit;
 
 $config = require __DIR__ . '/config.php';
-$tasksFile = $config['tasks_file'];
 $baseDir = realpath($config['base_dir']);
+$tasksFile = $config['tasks_file'];
 $chunkSize = $config['chunk_size'] ?? (2 * 1024 * 1024);
 
-function updateTask($taskId, $callback) {
+function updateTask($id, $callback) {
     global $tasksFile;
-    $fp = fopen($tasksFile, 'c+');
-    $ret = null;
+    $fp = @fopen($tasksFile, 'c+');
     if ($fp && flock($fp, LOCK_EX)) {
         $json = stream_get_contents($fp);
         $tasks = $json ? json_decode($json, true) : [];
-        
-        if (isset($tasks[$taskId])) {
-            $tasks[$taskId] = $callback($tasks[$taskId]);
+        if (isset($tasks[$id])) {
+            $tasks[$id] = $callback($tasks[$id]);
             ftruncate($fp, 0);
             rewind($fp);
             fwrite($fp, json_encode($tasks));
-            $ret = $tasks[$taskId];
         }
         flock($fp, LOCK_UN);
     }
-    if ($fp) fclose($fp);
-    return $ret;
+    if ($fp) @fclose($fp);
 }
 
-while (true) {
-    $task = updateTask($taskId, function($t) { return $t; }); 
-    
-    if (!$task) break;
-
-    if ($task['status'] === 'cancel' || $task['status'] === 'cancelled') {
-        $dstDir = realpath($baseDir . '/' . dirname($task['to']));
-        if ($dstDir) @unlink($dstDir . '/' . basename($task['to'])); 
-        
-        if ($task['status'] === 'cancel') {
-            updateTask($taskId, function($t) { 
-                $t['status'] = 'cancelled'; 
-                return $t; 
-            });
-        }
-        break; 
-    }
-
-    if ($task['status'] === 'paused') {
-        sleep(1); 
-        continue;
-    }
-
-    if ($task['status'] !== 'running') break;
-
-    $src = realpath($baseDir . '/' . $task['from']);
-    $dstDir = realpath($baseDir . '/' . dirname($task['to']));
-    
-    if (!$src || !$dstDir) {
-        updateTask($taskId, function($t) { $t['status'] = 'error'; return $t; });
-        break;
-    }
-    
-    $dst = $dstDir . '/' . basename($task['to']);
-
-    $fpSrc = @fopen($src, 'rb');
-    if (!$fpSrc) {
-        updateTask($taskId, function($t) { $t['status'] = 'error'; return $t; });
-        break;
-    }
-
-    fseek($fpSrc, $task['offset']);
-    $chunk = fread($fpSrc, $chunkSize);
-    $isEOF = feof($fpSrc) || strlen($chunk) == 0;
-    fclose($fpSrc);
-
-    if (strlen($chunk) > 0) {
-        $fpDst = @fopen($dst, $task['offset'] === 0 ? 'wb' : 'ab');
-        if ($fpDst) {
-            fwrite($fpDst, $chunk);
-            fclose($fpDst);
-        }
-    }
-
-    $newOffset = $task['offset'] + strlen($chunk);
-
-    if ($isEOF) {
-        if ($task['type'] === 'cut') @unlink($src);
-        updateTask($taskId, function($t) use ($newOffset) {
-            $t['offset'] = $newOffset;
-            $t['status'] = 'completed';
-            return $t;
-        });
-        break;
-    } else {
-        updateTask($taskId, function($t) use ($newOffset) {
-            $t['offset'] = $newOffset;
-            return $t;
-        });
-    }
-    
-    usleep(50000); 
+$task = null;
+$fp = @fopen($tasksFile, 'r');
+if ($fp) {
+    flock($fp, LOCK_SH);
+    $json = stream_get_contents($fp);
+    $tasks = $json ? json_decode($json, true) : [];
+    $task = $tasks[$taskId] ?? null;
+    flock($fp, LOCK_UN);
+    @fclose($fp);
 }
+
+if (!$task || $task['status'] !== 'running') exit;
+
+$from = rtrim($baseDir, '/') . '/' . ltrim($task['from'], '/');
+$to = rtrim($baseDir, '/') . '/' . ltrim($task['to'], '/');
+
+// ---------------------------------------------------------
+// ОПТИМИЗАЦИЯ ДЛЯ ОДНОГО ФИЗИЧЕСКОГО ДИСКА
+// ---------------------------------------------------------
+$fromDev = @stat($from)['dev'];
+$toDirDev = @stat(dirname($to))['dev'];
+
+if ($fromDev !== null && $fromDev === $toDirDev) {
+    if ($task['type'] === 'cut') {
+        updateTask($taskId, fn($t) => array_merge($t, ['native' => true]));
+        if (@rename($from, $to)) {
+            updateTask($taskId, fn($t) => array_merge($t, ['offset' => $t['size'], 'status' => 'completed', 'native' => false]));
+            exit;
+        }
+        updateTask($taskId, fn($t) => array_merge($t, ['native' => false])); // Откат флага при ошибке
+    } else if ($task['type'] === 'copy') {
+        updateTask($taskId, fn($t) => array_merge($t, ['native' => true]));
+        if (@copy($from, $to)) {
+            updateTask($taskId, fn($t) => array_merge($t, ['offset' => $t['size'], 'status' => 'completed', 'native' => false]));
+            exit;
+        }
+        updateTask($taskId, fn($t) => array_merge($t, ['native' => false])); // Откат флага при ошибке
+    }
+}
+// ---------------------------------------------------------
+
+$in = @fopen($from, 'rb');
+$out = @fopen($to, $task['offset'] > 0 ? 'ab' : 'wb');
+
+if (!$in || !$out) {
+    updateTask($taskId, fn($t) => array_merge($t, ['status' => 'error']));
+    if ($in) @fclose($in);
+    if ($out) @fclose($out);
+    exit;
+}
+
+fseek($in, $task['offset']);
+
+while (!feof($in)) {
+    $currTask = null;
+    $fp = @fopen($tasksFile, 'r');
+    if ($fp) {
+        flock($fp, LOCK_SH);
+        $tasks = json_decode(stream_get_contents($fp), true);
+        $currTask = $tasks[$taskId] ?? null;
+        flock($fp, LOCK_UN);
+        @fclose($fp);
+    }
+    
+    if (!$currTask || $currTask['status'] === 'cancelled') {
+        @unlink($to); 
+        exit;
+    }
+    if ($currTask['status'] === 'paused') {
+        exit; 
+    }
+
+    $data = fread($in, $chunkSize);
+    if ($data === false) break;
+    
+    fwrite($out, $data);
+    $newOffset = ftell($in);
+    
+    updateTask($taskId, fn($t) => array_merge($t, ['offset' => $newOffset]));
+    
+    usleep(5000); 
+}
+
+@fclose($in);
+@fclose($out);
+
+if ($task['type'] === 'cut') {
+    @unlink($from); 
+}
+
+updateTask($taskId, fn($t) => array_merge($t, ['status' => 'completed', 'offset' => $t['size']]));
