@@ -29,6 +29,23 @@ body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 10px; ba
 .file-table tr.selected { background: var(--selected-bg) !important; }
 .file-table tr.clipboard-cut { opacity: 0.4; }
 
+/* Стили для изменения ширины колонок */
+.file-table th { position: relative; }
+.resizer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 5px;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    background-color: transparent;
+}
+.resizer:hover, .resizer.dragging {
+    background-color: var(--accent);
+    opacity: 0.5;
+}
+
 .clickable-size { cursor: pointer; }
 .clickable-size:hover { text-decoration: underline; color: var(--accent); }
 

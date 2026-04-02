@@ -31,12 +31,53 @@ function gotoPath(side, path) {
     loadFiles(side);
 }
 
+// Функция инициализации изменения размера колонки "Имя"
+function initResizer(side) {
+    const th = document.getElementById(`th-name-${side}`);
+    if (!th) return;
+    const resizer = th.querySelector('.resizer');
+    
+    // Восстановление сохраненной ширины
+    const savedWidth = localStorage.getItem(`name-col-width-${side}`);
+    if (savedWidth) th.style.width = savedWidth + 'px';
+
+    let x = 0;
+    let w = 0;
+
+    const mouseDownHandler = function(e) {
+        x = e.clientX;
+        w = th.offsetWidth;
+        document.addEventListener('mousemove', mouseMoveHandler);
+        document.addEventListener('mouseup', mouseUpHandler);
+        resizer.classList.add('dragging');
+    };
+
+    const mouseMoveHandler = function(e) {
+        const dx = e.clientX - x;
+        th.style.width = `${w + dx}px`;
+    };
+
+    const mouseUpHandler = function() {
+        resizer.classList.remove('dragging');
+        document.removeEventListener('mousemove', mouseMoveHandler);
+        document.removeEventListener('mouseup', mouseUpHandler);
+        // Сохраняем новую ширину
+        localStorage.setItem(`name-col-width-${side}`, th.offsetWidth);
+    };
+
+    resizer.addEventListener('mousedown', mouseDownHandler);
+}
+
 async function init() {
     const res = await fetch('api.php?action=init');
     const config = await res.json();
     document.body.setAttribute('data-theme', config.theme);
     state.left.path = config.panes.left;
     state.right.path = config.panes.right;
+
+    // Инициализация ресайзеров таблиц
+    initResizer('left');
+    initResizer('right');
 
     if (config.refresh_interval > 0) {
         setInterval(() => { loadFiles('left'); loadFiles('right'); }, config.refresh_interval * 1000);
@@ -81,7 +122,6 @@ async function loadFiles(side) {
         list.appendChild(tr);
     });
     
-    // Рендеринг хлебных крошек
     const pathBar = document.getElementById(`path-${side}`);
     pathBar.innerHTML = '';
     
