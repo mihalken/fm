@@ -45,8 +45,8 @@ function getSafePath($dir, $rel) {
 }
 
 function checkAccess($path, $type = 'w') {
-    if ($type === 'w' && !is_writable($path)) die(json_encode(['error' => 'Ошибка: нет прав на запись.']));
-    if ($type === 'r' && !is_readable($path)) die(json_encode(['error' => 'Ошибка: доступ запрещен.']));
+    if ($type === 'w' && !is_writable($path)) throw new Exception('Ошибка: нет прав на запись.');
+    if ($type === 'r' && !is_readable($path)) throw new Exception('Ошибка: доступ запрещен.');
 }
 
 function normalizePath($path) {
@@ -73,7 +73,7 @@ function isPathLocked($absPath) {
 
 function checkLock($path) {
     if (isPathLocked($path)) {
-        die(json_encode(['error' => 'Действие отклонено: файл или папка заняты фоновым процессом.']));
+        throw new Exception('Действие отклонено: файл или папка заняты фоновым процессом.');
     }
 }
 
@@ -95,244 +95,273 @@ function scanDirRecursive($dir, $baseLen) {
     return $result;
 }
 
-$action = $_GET['action'] ?? '';
-$path = $_GET['path'] ?? '';
-$targetPath = getSafePath($baseDir, $path);
+// === ЦЕНТРАЛЬНЫЙ ОБРАБОТЧИК ЗАПРОСОВ ===
+function handleAction($action, $path, $data, $targetPath) {
+    global $config, $baseDir;
 
-switch ($action) {
-    case 'init':
-        echo json_encode([
-            'theme' => $config['theme'], 
-            'refresh_interval' => $config['refresh_interval'], 
-            'panes' => $config['panes'],
-            'max_edit_size' => $config['max_edit_size'] ?? 1048576
-        ]); break;
+    switch ($action) {
+        case 'init':
+            return [
+                'theme' => $config['theme'], 
+                'refresh_interval' => $config['refresh_interval'], 
+                'panes' => $config['panes'],
+                'max_edit_size' => $config['max_edit_size'] ?? 1048576
+            ];
 
-    case 'list':
-        checkAccess($targetPath, 'r');
-        $files = [];
-        $items = @scandir($targetPath);
-        if ($items) {
-            foreach ($items as $file) {
-                if ($file === '.' || $file === '..') continue;
-                $fp = $targetPath . '/' . $file;
-                $stat = @stat($fp);
-                if (!$stat) continue;
-                $owner = function_exists('posix_getpwuid') ? @posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
-                $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
-                $files[] = [
-                    'name' => $file, 'isDir' => is_dir($fp),
-                    'size' => is_dir($fp) ? '-' : (filesize($fp) ?: 0),
-                    'owner_group' => ($owner ?: '???') . ':' . ($group ?: '???'),
-                    'perms' => substr(sprintf('%o', fileperms($fp)), -4),
-                    'modified' => date("Y-m-d H:i", $stat['mtime'])
-                ];
+        case 'list':
+            checkAccess($targetPath, 'r');
+            $files = [];
+            $items = @scandir($targetPath);
+            if ($items) {
+                foreach ($items as $file) {
+                    if ($file === '.' || $file === '..') continue;
+                    $fp = $targetPath . '/' . $file;
+                    $stat = @stat($fp);
+                    if (!$stat) continue;
+                    $owner = function_exists('posix_getpwuid') ? @posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
+                    $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
+                    $files[] = [
+                        'name' => $file, 'isDir' => is_dir($fp),
+                        'size' => is_dir($fp) ? '-' : (filesize($fp) ?: 0),
+                        'owner_group' => ($owner ?: '???') . ':' . ($group ?: '???'),
+                        'perms' => substr(sprintf('%o', fileperms($fp)), -4),
+                        'modified' => date("Y-m-d H:i", $stat['mtime'])
+                    ];
+                }
             }
-        }
-        usort($files, fn($a, $b) => $b['isDir'] - $a['isDir'] ?: strcasecmp($a['name'], $b['name']));
-        echo json_encode(['files' => $files]); break;
+            usort($files, fn($a, $b) => $b['isDir'] - $a['isDir'] ?: strcasecmp($a['name'], $b['name']));
+            return ['files' => $files];
 
-    case 'transfer_os': 
-        $data = json_decode(file_get_contents('php://input'), true);
-        $srcBase = getSafePath($baseDir, $data['from_path']);
-        $dstBase = getSafePath($baseDir, $data['to_path']);
-        checkAccess($dstBase, 'w');
+        case 'transfer_os': 
+            $srcBase = getSafePath($baseDir, $data['from_path']);
+            $dstBase = getSafePath($baseDir, $data['to_path']);
+            checkAccess($dstBase, 'w');
 
-        $filesToTransfer = [];
-        foreach ($data['names'] as $name) {
-            $srcPath = rtrim(normalizePath($srcBase . '/' . basename($name)), '/');
-            $dstFolder = rtrim(normalizePath($dstBase), '/');
-            
-            $originalBaseName = basename($name);
-            $newBaseName = $originalBaseName;
-            $counter = 1;
-            
-            while (file_exists($dstBase . '/' . $newBaseName)) {
-                $info = pathinfo($originalBaseName);
-                $isDir = is_dir($srcPath);
-                $ext = (isset($info['extension']) && !$isDir) ? '.' . $info['extension'] : '';
-                $filename = $isDir ? $originalBaseName : $info['filename'];
+            $filesToTransfer = [];
+            foreach ($data['names'] as $name) {
+                $srcPath = rtrim(normalizePath($srcBase . '/' . basename($name)), '/');
+                $dstFolder = rtrim(normalizePath($dstBase), '/');
                 
-                $newBaseName = $filename . ' (копия ' . $counter . ')' . $ext;
-                $counter++;
-            }
-            
-            $dstPath = rtrim(normalizePath($dstBase . '/' . $newBaseName), '/');
-            
-            if ($srcPath === $dstPath || strpos($dstFolder . '/', $srcPath . '/') === 0) {
-                die(json_encode(['error' => 'Ошибка: попытка скопировать или переместить объект сам в себя.']));
-            }
-            
-            checkLock($srcPath); 
-            checkLock($dstPath); 
-            
-            if (is_dir($srcPath)) {
-                @mkdir($dstBase . '/' . $newBaseName, 0777, true);
+                $originalBaseName = basename($name);
+                $newBaseName = $originalBaseName;
+                $counter = 1;
                 
-                $subItems = scanDirRecursive($srcPath, strlen($srcBase));
-                foreach ($subItems as $item) {
-                    $parts = explode('/', $item['rel_path'], 2);
-                    $parts[0] = $newBaseName; 
-                    $remappedRelPath = implode('/', $parts);
+                while (file_exists($dstBase . '/' . $newBaseName)) {
+                    $info = pathinfo($originalBaseName);
+                    $isDir = is_dir($srcPath);
+                    $ext = (isset($info['extension']) && !$isDir) ? '.' . $info['extension'] : '';
+                    $filename = $isDir ? $originalBaseName : $info['filename'];
+                    
+                    $newBaseName = $filename . ' (копия ' . $counter . ')' . $ext;
+                    $counter++;
+                }
+                
+                $dstPath = rtrim(normalizePath($dstBase . '/' . $newBaseName), '/');
+                
+                if ($srcPath === $dstPath || strpos($dstFolder . '/', $srcPath . '/') === 0) {
+                    throw new Exception('Ошибка: попытка скопировать или переместить объект сам в себя.');
+                }
+                
+                checkLock($srcPath); 
+                checkLock($dstPath); 
+                
+                if (is_dir($srcPath)) {
+                    @mkdir($dstBase . '/' . $newBaseName, 0777, true);
+                    $subItems = scanDirRecursive($srcPath, strlen($srcBase));
+                    foreach ($subItems as $item) {
+                        $parts = explode('/', $item['rel_path'], 2);
+                        $parts[0] = $newBaseName; 
+                        $remappedRelPath = implode('/', $parts);
 
-                    if ($item['is_dir']) {
-                        @mkdir($dstBase . '/' . $remappedRelPath, 0777, true);
-                    } else {
-                        @mkdir($dstBase . '/' . dirname($remappedRelPath), 0777, true);
-                        $filesToTransfer[] = [
-                            'orig_rel_path' => $item['rel_path'],
-                            'new_rel_path' => $remappedRelPath,
-                            'size' => $item['size'],
-                            'is_dir' => false
-                        ];
+                        if ($item['is_dir']) {
+                            @mkdir($dstBase . '/' . $remappedRelPath, 0777, true);
+                        } else {
+                            @mkdir($dstBase . '/' . dirname($remappedRelPath), 0777, true);
+                            $filesToTransfer[] = [
+                                'orig_rel_path' => $item['rel_path'],
+                                'new_rel_path' => $remappedRelPath,
+                                'size' => $item['size'],
+                                'is_dir' => false
+                            ];
+                        }
                     }
+                } else {
+                    $filesToTransfer[] = [
+                        'orig_rel_path' => basename($name),
+                        'new_rel_path' => $newBaseName,
+                        'size' => filesize($srcPath),
+                        'is_dir' => false
+                    ];
                 }
-            } else {
-                $filesToTransfer[] = [
-                    'orig_rel_path' => basename($name),
-                    'new_rel_path' => $newBaseName,
-                    'size' => filesize($srcPath),
-                    'is_dir' => false
-                ];
             }
-        }
 
-        $spawnList = [];
-        modifyTasks(function($tasks) use ($filesToTransfer, $data, &$spawnList) {
-            foreach ($filesToTransfer as $f) {
-                $taskId = uniqid('task_');
-                $tasks[$taskId] = [
-                    'id' => $taskId, 'type' => $data['type'],
-                    'from' => $data['from_path'] . '/' . $f['orig_rel_path'],
-                    'to' => $data['to_path'] . '/' . $f['new_rel_path'],
-                    'name' => $f['new_rel_path'], 
-                    'size' => $f['size'], 
-                    'offset' => 0, 'status' => 'running'
-                ];
-                $spawnList[] = $taskId;
-            }
-            return $tasks;
-        });
-
-        foreach ($spawnList as $tid) {
-            $cmd = "php " . escapeshellarg(__DIR__ . "/worker.php") . " " . escapeshellarg($tid) . " > /dev/null 2>&1 &";
-            exec($cmd);
-        }
-
-        echo json_encode(['success' => true]); break;
-
-    case 'poll_tasks': echo json_encode(getTasks()); break;
-
-    case 'control_task':
-        $data = json_decode(file_get_contents('php://input'), true);
-        modifyTasks(function($tasks) use ($data) {
-            if (isset($tasks[$data['id']])) {
-                $tasks[$data['id']]['status'] = $data['cmd'];
-            }
-            return $tasks;
-        });
-        echo json_encode(['success' => true]); break;
-
-    case 'clear_task':
-        $data = json_decode(file_get_contents('php://input'), true);
-        modifyTasks(function($tasks) use ($data, $baseDir) {
-            if (isset($tasks[$data['id']])) {
-                $task = $tasks[$data['id']];
-                if ($task['status'] !== 'completed') {
-                    $dstDir = realpath($baseDir . '/' . dirname($task['to']));
-                    if ($dstDir) @unlink($dstDir . '/' . basename($task['to']));
+            $spawnList = [];
+            modifyTasks(function($tasks) use ($filesToTransfer, $data, &$spawnList) {
+                foreach ($filesToTransfer as $f) {
+                    $taskId = uniqid('task_');
+                    $tasks[$taskId] = [
+                        'id' => $taskId, 'type' => $data['type'],
+                        'from' => $data['from_path'] . '/' . $f['orig_rel_path'],
+                        'to' => $data['to_path'] . '/' . $f['new_rel_path'],
+                        'name' => $f['new_rel_path'], 
+                        'size' => $f['size'], 
+                        'offset' => 0, 'status' => 'running'
+                    ];
+                    $spawnList[] = $taskId;
                 }
-                unset($tasks[$data['id']]);
+                return $tasks;
+            });
+
+            foreach ($spawnList as $tid) {
+                $cmd = "php " . escapeshellarg(__DIR__ . "/worker.php") . " " . escapeshellarg($tid) . " > /dev/null 2>&1 &";
+                exec($cmd);
             }
-            return $tasks;
-        });
-        echo json_encode(['success' => true]); break;
 
-    case 'cleanup_dirs':
-        $data = json_decode(file_get_contents('php://input'), true);
-        $srcBase = getSafePath($baseDir, $data['from_path']);
-        function removeEmptyDirs($dir) {
-            if (!is_dir($dir)) return;
-            $items = array_diff(scandir($dir), ['.', '..']);
-            foreach ($items as $item) {
-                if (is_dir($dir . '/' . $item)) removeEmptyDirs($dir . '/' . $item);
+            return ['success' => true];
+
+        case 'poll_tasks': 
+            return getTasks();
+
+        case 'control_task':
+            modifyTasks(function($tasks) use ($data) {
+                if (isset($tasks[$data['id']])) {
+                    $tasks[$data['id']]['status'] = $data['cmd'];
+                }
+                return $tasks;
+            });
+            return ['success' => true];
+
+        case 'clear_task':
+            modifyTasks(function($tasks) use ($data, $baseDir) {
+                if (isset($tasks[$data['id']])) {
+                    $task = $tasks[$data['id']];
+                    if ($task['status'] !== 'completed') {
+                        $dstDir = realpath($baseDir . '/' . dirname($task['to']));
+                        if ($dstDir) @unlink($dstDir . '/' . basename($task['to']));
+                    }
+                    unset($tasks[$data['id']]);
+                }
+                return $tasks;
+            });
+            return ['success' => true];
+
+        case 'cleanup_dirs':
+            $srcBase = getSafePath($baseDir, $data['from_path']);
+            function removeEmptyDirs($dir) {
+                if (!is_dir($dir)) return;
+                $items = array_diff(scandir($dir), ['.', '..']);
+                foreach ($items as $item) {
+                    if (is_dir($dir . '/' . $item)) removeEmptyDirs($dir . '/' . $item);
+                }
+                @rmdir($dir);
             }
-            @rmdir($dir);
-        }
-        foreach ($data['names'] as $name) {
-            $srcPath = $srcBase . '/' . basename($name);
-            checkLock($srcPath);
-            if (is_dir($srcPath)) removeEmptyDirs($srcPath);
-        }
-        echo json_encode(['success' => true]); break;
+            foreach ($data['names'] as $name) {
+                $srcPath = $srcBase . '/' . basename($name);
+                checkLock($srcPath);
+                if (is_dir($srcPath)) removeEmptyDirs($srcPath);
+            }
+            return ['success' => true];
 
-    case 'create_folder':
-    case 'create_file':
-        checkAccess($targetPath, 'w');
-        $data = json_decode(file_get_contents('php://input'), true);
-        $new = $targetPath . '/' . basename($data['name']);
-        checkLock($new);
-        if ($action === 'create_folder') @mkdir($new); else @file_put_contents($new, '');
-        echo json_encode(['success' => true]); break;
-        
-    case 'read_file':
-        checkAccess($targetPath, 'r');
-        $fp = $targetPath . '/' . basename($_GET['name']);
-        
-        // --- ЗАЩИТА ОТ ОТКРЫТИЯ БИНАРНЫХ ФАЙЛОВ ---
-        $header = @file_get_contents($fp, false, null, 0, 1024);
-        if (strpos($header, "\0") !== false) {
-            die(json_encode(['error' => 'Отклонено: файл является бинарным и не может быть открыт в текстовом редакторе.']));
-        }
-        
-        echo json_encode(['content' => @file_get_contents($fp)]); break;
+        case 'create_folder':
+        case 'create_file':
+            checkAccess($targetPath, 'w');
+            $new = $targetPath . '/' . basename($data['name']);
+            checkLock($new);
+            if ($action === 'create_folder') @mkdir($new); else @file_put_contents($new, '');
+            return ['success' => true];
+            
+        case 'read_file':
+            checkAccess($targetPath, 'r');
+            $name = basename($data['name'] ?? $_GET['name'] ?? '');
+            $fp = $targetPath . '/' . $name;
+            
+            $header = @file_get_contents($fp, false, null, 0, 1024);
+            if (strpos($header, "\0") !== false) {
+                throw new Exception('Отклонено: файл является бинарным и не может быть открыт в текстовом редакторе.');
+            }
+            return ['content' => @file_get_contents($fp)];
 
-    case 'save_file':
-        checkAccess($targetPath, 'w');
-        $data = json_decode(file_get_contents('php://input'), true);
-        $p = $targetPath . '/' . basename($data['name']);
-        checkLock($p); 
-        file_put_contents($p, $data['content']);
-        echo json_encode(['success' => true]); break;
-
-    case 'delete':
-        checkAccess($targetPath, 'w');
-        $data = json_decode(file_get_contents('php://input'), true);
-        foreach ($data['names'] as $name) {
-            $p = $targetPath . '/' . basename($name);
+        case 'save_file':
+            checkAccess($targetPath, 'w');
+            $p = $targetPath . '/' . basename($data['name']);
             checkLock($p); 
-            is_dir($p) ? shell_exec("rm -rf ".escapeshellarg($p)) : @unlink($p);
-        }
-        echo json_encode(['success' => true]); break;
+            file_put_contents($p, $data['content']);
+            return ['success' => true];
 
-    case 'rename':
-        checkAccess($targetPath, 'w');
-        $data = json_decode(file_get_contents('php://input'), true);
-        $old = $targetPath . '/' . basename($data['old_name']);
-        $new = $targetPath . '/' . basename($data['new_name']);
-        checkLock($old); 
-        checkLock($new);
-        rename($old, $new);
-        echo json_encode(['success' => true]); break;
+        case 'delete':
+            checkAccess($targetPath, 'w');
+            foreach ($data['names'] as $name) {
+                $p = $targetPath . '/' . basename($name);
+                checkLock($p); 
+                is_dir($p) ? shell_exec("rm -rf ".escapeshellarg($p)) : @unlink($p);
+            }
+            return ['success' => true];
 
-    case 'chmod':
-        checkAccess($targetPath, 'w');
-        $data = json_decode(file_get_contents('php://input'), true);
-        $p = $targetPath . '/' . basename($data['name']);
-        checkLock($p); 
-        chmod($p, octdec($data['mode']));
-        echo json_encode(['success' => true]); break;
+        case 'rename':
+            checkAccess($targetPath, 'w');
+            $old = $targetPath . '/' . basename($data['old_name']);
+            $new = $targetPath . '/' . basename($data['new_name']);
+            checkLock($old); 
+            checkLock($new);
+            rename($old, $new);
+            return ['success' => true];
 
-    case 'upload':
-        checkAccess($targetPath, 'w');
-        if (!isset($_FILES['file'])) die(json_encode(['error' => 'Файл не получен.']));
-        $dst = $targetPath . '/' . basename($_FILES['file']['name']);
-        checkLock($dst); 
-        if (file_exists($dst) && ($_POST['overwrite'] ?? 'false') !== 'true') {
-            die(json_encode(['confirm' => "Файл уже существует. Заменить?"]));
+        case 'chmod':
+            checkAccess($targetPath, 'w');
+            $p = $targetPath . '/' . basename($data['name']);
+            checkLock($p); 
+            chmod($p, octdec($data['mode']));
+            return ['success' => true];
+
+        case 'upload':
+            checkAccess($targetPath, 'w');
+            if (!isset($_FILES['file'])) throw new Exception('Файл не получен.');
+            $dst = $targetPath . '/' . basename($_FILES['file']['name']);
+            checkLock($dst); 
+            if (file_exists($dst) && ($data['overwrite'] ?? $_POST['overwrite'] ?? 'false') !== 'true') {
+                return ['confirm' => "Файл уже существует. Заменить?"];
+            }
+            if (!@move_uploaded_file($_FILES['file']['tmp_name'], $dst)) {
+                throw new Exception('Ошибка загрузки файла.');
+            }
+            return ['success' => true];
+
+        default:
+            throw new Exception("Неизвестное действие: $action");
+    }
+}
+
+// === ТОЧКА ВХОДА ===
+try {
+    $action = $_GET['action'] ?? '';
+    
+    // Пакетная обработка (Batching)
+    if ($action === 'batch') {
+        $input = json_decode(file_get_contents('php://input'), true);
+        $responses = [];
+        
+        foreach ($input['requests'] ?? [] as $req) {
+            try {
+                $reqAction = $req['action'] ?? '';
+                $reqPath = $req['path'] ?? '';
+                $reqData = $req['data'] ?? [];
+                $targetPath = getSafePath($baseDir, $reqPath);
+                
+                $responses[] = handleAction($reqAction, $reqPath, $reqData, $targetPath);
+            } catch (Exception $e) {
+                $responses[] = ['error' => $e->getMessage()];
+            }
         }
-        if (!@move_uploaded_file($_FILES['file']['tmp_name'], $dst)) {
-            die(json_encode(['error' => 'Ошибка загрузки файла.']));
-        }
-        echo json_encode(['success' => true]); break;
+        echo json_encode(['responses' => $responses]);
+    } 
+    // Одиночный запрос
+    else {
+        $path = $_GET['path'] ?? '';
+        $targetPath = getSafePath($baseDir, $path);
+        $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        
+        echo json_encode(handleAction($action, $path, $data, $targetPath));
+    }
+} catch (Exception $e) {
+    echo json_encode(['error' => $e->getMessage()]);
 }
