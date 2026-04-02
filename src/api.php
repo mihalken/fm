@@ -17,15 +17,14 @@ function getSafePath($dir, $rel) {
 }
 
 function checkAccess($path, $type = 'w') {
-    if ($type === 'w' && !is_writable($path)) die(json_encode(['error' => 'Нет прав на запись.']));
-    if ($type === 'r' && !is_readable($path)) die(json_encode(['error' => 'Папка недоступна.']));
+    if ($type === 'w' && !is_writable($path)) die(json_encode(['error' => 'Ошибка: нет прав на запись.']));
+    if ($type === 'r' && !is_readable($path)) die(json_encode(['error' => 'Ошибка: доступ запрещен.']));
 }
 
 switch ($action) {
     case 'init':
         echo json_encode([
             'theme' => $config['theme'] ?? 'dark',
-            'panes' => $config['panes'] ?? ['left' => '', 'right' => ''],
             'refresh_interval' => $config['refresh_interval'] ?? 30
         ]);
         break;
@@ -34,7 +33,6 @@ switch ($action) {
         checkAccess($targetPath, 'r');
         $files = [];
         $items = @scandir($targetPath);
-        if ($items === false) die(json_encode(['error' => 'Ошибка чтения.']));
         foreach ($items as $file) {
             if ($file === '.' || $file === '..') continue;
             $fp = $targetPath . '/' . $file;
@@ -60,48 +58,50 @@ switch ($action) {
         foreach ($data['names'] as $name) {
             $src = getSafePath($baseDir, $data['from_path']) . '/' . basename($name);
             $dst = $destDir . '/' . basename($name);
-            if (file_exists($dst) && !($data['overwrite'] ?? false)) die(json_encode(['confirm' => "Файл '$name' уже существует. Заменить?"]));
+            if (file_exists($dst) && !($data['overwrite'] ?? false)) die(json_encode(['confirm' => "Заменить '$name'?"]));
             $res = ($data['type'] === 'copy') ? (is_dir($src) ? shell_exec("cp -r ".escapeshellarg($src)." ".escapeshellarg($dst)) : @copy($src, $dst)) : @rename($src, $dst);
-            if ($res === false) die(json_encode(['error' => "Ошибка с '$name'."]));
         }
         echo json_encode(['success' => true]);
         break;
 
     case 'create_folder':
+    case 'create_file':
         checkAccess($targetPath, 'w');
         $data = json_decode(file_get_contents('php://input'), true);
-        if (!@mkdir($targetPath . '/' . basename($data['name']))) die(json_encode(['error' => 'Ошибка создания папки.']));
+        $new = $targetPath . '/' . basename($data['name']);
+        if ($action === 'create_folder') @mkdir($new); else @file_put_contents($new, '');
         echo json_encode(['success' => true]);
         break;
 
-    case 'upload':
-        checkAccess($targetPath, 'w');
-        $dst = $targetPath . '/' . basename($_FILES['file']['name']);
-        if (file_exists($dst) && ($_POST['overwrite'] ?? 'false') !== 'true') die(json_encode(['confirm' => "Заменить существующий файл?"]));
-        move_uploaded_file($_FILES['file']['tmp_name'], $dst);
-        echo json_encode(['success' => true]);
+    case 'read_file':
+        $fp = $targetPath . '/' . basename($_GET['name']);
+        echo json_encode(['content' => @file_get_contents($fp)]);
         break;
 
-    case 'rename':
-        checkAccess($targetPath, 'w');
+    case 'save_file':
         $data = json_decode(file_get_contents('php://input'), true);
-        if (!@rename($targetPath . '/' . basename($data['old_name']), $targetPath . '/' . basename($data['new_name']))) die(json_encode(['error' => 'Ошибка переименования.']));
+        file_put_contents($targetPath . '/' . basename($data['name']), $data['content']);
         echo json_encode(['success' => true]);
         break;
 
     case 'delete':
-        checkAccess($targetPath, 'w');
         $data = json_decode(file_get_contents('php://input'), true);
         foreach ($data['names'] as $name) {
             $p = $targetPath . '/' . basename($name);
-            is_dir($p) ? shell_exec("rm -rf " . escapeshellarg($p)) : @unlink($p);
+            is_dir($p) ? shell_exec("rm -rf ".escapeshellarg($p)) : @unlink($p);
         }
+        echo json_encode(['success' => true]);
+        break;
+
+    case 'rename':
+        $data = json_decode(file_get_contents('php://input'), true);
+        rename($targetPath . '/' . basename($data['old_name']), $targetPath . '/' . basename($data['new_name']));
         echo json_encode(['success' => true]);
         break;
 
     case 'chmod':
         $data = json_decode(file_get_contents('php://input'), true);
-        if (!@chmod($targetPath . '/' . basename($data['name']), octdec($data['mode']))) die(json_encode(['error' => 'Ошибка прав.']));
+        chmod($targetPath . '/' . basename($data['name']), octdec($data['mode']));
         echo json_encode(['success' => true]);
         break;
 }

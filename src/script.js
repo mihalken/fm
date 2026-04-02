@@ -21,32 +21,42 @@ async function init() {
 async function loadFiles(side) {
     const res = await fetch(`api.php?action=list&path=${encodeURIComponent(state[side].path)}`);
     const data = await res.json();
-    if (data.error) return showToast(data.error, 'error');
+    
+    const oldSel = [...state[side].selection]; 
+    state[side].selection = [];
+    
+    if (data.error) {
+        showToast(data.error, 'error');
+        updateToolbar(side);
+        return;
+    }
     
     const list = document.getElementById(`list-${side}`);
     list.innerHTML = '';
+
     if (state[side].path !== '') {
         const tr = document.createElement('tr');
         tr.innerHTML = `<td colspan="4" style="color:var(--accent); cursor:pointer">🔙 .. Назад</td>`;
         tr.onclick = () => goUp(side);
         list.appendChild(tr);
     }
+
     data.files?.forEach(f => {
         const tr = document.createElement('tr');
-        if (state[side].selection.includes(f.name)) tr.classList.add('selected');
+        if (oldSel.includes(f.name)) { 
+            state[side].selection.push(f.name);
+            tr.classList.add('selected');
+        }
         if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
         
-        tr.innerHTML = `
-            <td>${f.isDir?'📁':'📄'} ${f.name}</td>
-            <td>${f.owner_group}</td>
-            <td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td>
-            <td>${f.modified}</td>
-        `;
+        tr.innerHTML = `<td>${f.isDir?'📁':'📄'} ${f.name}</td><td>${f.owner_group}</td><td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td><td>${f.modified}</td>`;
         tr.onclick = (e) => toggleSelect(side, f.name, tr, e.ctrlKey);
-        tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : null;
+        tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : openEditor(side, f.name);
         list.appendChild(tr);
     });
+    
     document.getElementById(`path-${side}`).innerText = `/${state[side].path}`;
+    updateToolbar(side);
 }
 
 function toggleSelect(side, name, row, ctrl) {
@@ -62,15 +72,15 @@ function toggleSelect(side, name, row, ctrl) {
 
 function updateToolbar(side) {
     const count = state[side].selection.length;
-    document.querySelectorAll(`#pane-${side} .needs-sel`).forEach(b => b.disabled = count === 0);
-    document.querySelectorAll(`#pane-${side} .needs-one`).forEach(b => b.disabled = count !== 1);
-    document.querySelectorAll(`.btn-paste`).forEach(b => b.disabled = !clipboard.type);
+    const pane = document.getElementById(`pane-${side}`);
+    if (!pane) return;
+    pane.querySelectorAll('.needs-sel').forEach(b => b.disabled = count === 0);
+    pane.querySelectorAll('.needs-one').forEach(b => b.disabled = count !== 1);
+    document.querySelectorAll('.btn-paste').forEach(b => b.disabled = !clipboard.type);
 }
 
 async function apiCall(action, side, body = {}) {
-    const res = await fetch(`api.php?action=${action}&path=${encodeURIComponent(state[side].path)}`, {
-        method: 'POST', body: JSON.stringify(body)
-    });
+    const res = await fetch(`api.php?action=${action}&path=${encodeURIComponent(state[side].path)}`, { method: 'POST', body: JSON.stringify(body) });
     const data = await res.json();
     if (data.confirm && confirm(data.confirm)) return apiCall(action, side, {...body, overwrite: true});
     if (data.error) showToast(data.error, 'error');
@@ -84,7 +94,6 @@ function showToast(m, t='') {
 }
 
 function refreshPane(side) { loadFiles(side); showToast('Обновлено'); }
-
 function addToClipboard(side, type) {
     clipboard = { type, files: [...state[side].selection], sourcePath: state[side].path };
     showToast(type === 'copy' ? 'Скопировано' : 'Вырезано');
@@ -103,14 +112,28 @@ function doRename(s) {
     const n = prompt("Новое имя:", old);
     if(n) apiCall('rename', s, { old_name: old, new_name: n });
 }
-function doCreateFolder(s) {
-    const n = prompt("Имя папки:");
-    if(n) apiCall('create_folder', s, { name: n });
+function doCreateObj(s, type) {
+    const n = prompt(type === 'folder' ? "Имя папки:" : "Имя файла:");
+    if(n) apiCall(type === 'folder' ? 'create_folder' : 'create_file', s, { name: n });
 }
 
-let curPerm = { side: '', name: '' };
+async function openEditor(side, fileName) {
+    const res = await fetch(`api.php?action=read_file&path=${encodeURIComponent(state[side].path)}&name=${encodeURIComponent(fileName)}`);
+    const data = await res.json();
+    document.getElementById('editorTitle').innerText = fileName;
+    document.getElementById('editorContent').value = data.content;
+    const m = document.getElementById('editorModal');
+    m.dataset.side = side; m.dataset.name = fileName;
+    m.style.display = 'flex';
+}
+async function saveFile() {
+    const m = document.getElementById('editorModal');
+    await apiCall('save_file', m.dataset.side, { name: m.dataset.name, content: document.getElementById('editorContent').value });
+    closeModal('editorModal');
+}
+
 function openPerms(side) {
-    curPerm = { side, name: state[side].selection[0] };
+    const name = state[side].selection[0];
     const row = document.querySelector(`#pane-${side} tr.selected`);
     const m = row.cells[2].getAttribute('title').slice(-3);
     const set = (v, r, w, x) => {
@@ -118,17 +141,21 @@ function openPerms(side) {
     };
     set(m[0], 'p-u-r', 'p-u-w', 'p-u-x'); set(m[1], 'p-g-r', 'p-g-w', 'p-g-x'); set(m[2], 'p-o-r', 'p-o-w', 'p-o-x');
     updateOctal();
-    document.getElementById('permsModal').style.display = 'flex';
+    const modal = document.getElementById('permsModal');
+    modal.dataset.side = side; modal.dataset.name = name;
+    modal.style.display = 'flex';
 }
 function updateOctal() {
     const calc = (r, w, x) => (document.getElementById(r).checked?4:0)+(document.getElementById(w).checked?2:0)+(document.getElementById(x).checked?1:0);
     document.getElementById('permsOctal').innerText = `0${calc('p-u-r','p-u-w','p-u-x')}${calc('p-g-r','p-g-w','p-g-x')}${calc('p-o-r','p-o-w','p-o-x')}`;
 }
 async function savePerms() {
-    await apiCall('chmod', curPerm.side, { name: curPerm.name, mode: document.getElementById('permsOctal').innerText });
-    document.getElementById('permsModal').style.display = 'none';
+    const m = document.getElementById('permsModal');
+    await apiCall('chmod', m.dataset.side, { name: m.dataset.name, mode: document.getElementById('permsOctal').innerText });
+    closeModal('permsModal');
 }
 
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 function enterFolder(s, n) { state[s].path += (state[s].path ? '/' : '') + n; loadFiles(s); }
 function goUp(s) { let p = state[s].path.split('/'); p.pop(); state[s].path = p.join('/'); loadFiles(s); }
 function triggerUpload(s) { document.getElementById(`file-input-${s}`).click(); }
@@ -139,7 +166,7 @@ async function handleUpload(s, i) {
     if (data.confirm && confirm(data.confirm)) {
         fd.append('overwrite', 'true');
         await fetch(`api.php?action=upload&path=${encodeURIComponent(state[s].path)}`, { method: 'POST', body: fd });
-    } else if (data.error) showToast(data.error, 'error');
+    }
     i.value = ''; loadFiles(s);
 }
 
