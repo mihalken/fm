@@ -1,7 +1,17 @@
-Testing AI
+# Simple File Manager
 
-Only local use
+#### Only local non-root runs
 
-RUN
+### Functions
+* two panes (Commander like)
+* upload / download
+* create
+* simple text editor
+* rename
+* cut / copy / paste
+* delete
+* dark theme
+* adaptive design
 
-php -S 127.0.0.1:8080 -t src/
+### Run
+~$ ./run.sh

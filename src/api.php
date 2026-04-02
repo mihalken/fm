@@ -1,15 +1,13 @@
 <?php
 $config = require 'config.php';
-header('Content-Type: application/json');
 
 $tzString = !empty($config['timezone']) ? $config['timezone'] : (ini_get('date.timezone') ?: date_default_timezone_get());
-
 date_default_timezone_set($tzString);
 
 try {
     $serverTimeZone = new DateTimeZone($tzString);
 } catch (Exception $e) {
-    $serverTimeZone = new DateTimeZone('UTC');
+    $serverTimeZone = new DateTimeZone('UTC'); 
 }
 
 $baseDir = realpath($config['base_dir']);
@@ -71,10 +69,8 @@ function isPathLocked($absPath) {
     
     foreach ($tasks as $task) {
         if (in_array($task['status'], ['completed', 'cancelled', 'error'])) continue;
-        
         $from = rtrim(normalizePath($baseDir . '/' . $task['from']), '/') . '/';
         $to = rtrim(normalizePath($baseDir . '/' . $task['to']), '/') . '/';
-        
         if (strpos($from, $target) === 0 || strpos($target, $from) === 0) return true;
         if (strpos($to, $target) === 0 || strpos($target, $to) === 0) return true;
     }
@@ -96,6 +92,7 @@ function scanDirRecursive($dir, $baseLen) {
             $path = $dir . '/' . $item;
             $relPath = substr($path, $baseLen + 1);
             if (is_dir($path)) {
+                $result[] = ['rel_path' => $relPath, 'size' => 0, 'is_dir' => true];
                 $result = array_merge($result, scanDirRecursive($path, $baseLen));
             } else {
                 $result[] = ['rel_path' => $relPath, 'size' => filesize($path), 'is_dir' => false];
@@ -114,7 +111,8 @@ function handleAction($action, $path, $data, $targetPath) {
                 'theme' => $config['theme'], 
                 'refresh_interval' => $config['refresh_interval'], 
                 'panes' => $config['panes'],
-                'max_edit_size' => $config['max_edit_size'] ?? 1048576
+                'max_edit_size' => $config['max_edit_size'] ?? 1048576,
+                'window_title' => $config['window_title'] ?? 'Cloud Commander' // Передаем заголовок
             ];
 
         case 'list':
@@ -130,7 +128,6 @@ function handleAction($action, $path, $data, $targetPath) {
                     $owner = function_exists('posix_getpwuid') ? @posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
                     $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
                     
-                    // Переводим время модификации в выбранную часовую зону
                     $dt = new DateTime('@' . $stat['mtime']);
                     $dt->setTimezone($serverTimeZone);
 
@@ -165,7 +162,6 @@ function handleAction($action, $path, $data, $targetPath) {
                     $isDir = is_dir($srcPath);
                     $ext = (isset($info['extension']) && !$isDir) ? '.' . $info['extension'] : '';
                     $filename = $isDir ? $originalBaseName : $info['filename'];
-                    
                     $newBaseName = $filename . ' (копия ' . $counter . ')' . $ext;
                     $counter++;
                 }
@@ -176,8 +172,7 @@ function handleAction($action, $path, $data, $targetPath) {
                     throw new Exception('Ошибка: попытка скопировать или переместить объект сам в себя.');
                 }
                 
-                checkLock($srcPath); 
-                checkLock($dstPath); 
+                checkLock($srcPath); checkLock($dstPath); 
                 
                 if (is_dir($srcPath)) {
                     @mkdir($dstBase . '/' . $newBaseName, 0777, true);
@@ -288,7 +283,6 @@ function handleAction($action, $path, $data, $targetPath) {
             checkAccess($targetPath, 'r');
             $name = basename($data['name'] ?? $_GET['name'] ?? '');
             $fp = $targetPath . '/' . $name;
-            
             $header = @file_get_contents($fp, false, null, 0, 1024);
             if (strpos($header, "\0") !== false) {
                 throw new Exception('Отклонено: файл является бинарным и не может быть открыт в текстовом редакторе.');
@@ -315,16 +309,14 @@ function handleAction($action, $path, $data, $targetPath) {
             checkAccess($targetPath, 'w');
             $old = $targetPath . '/' . basename($data['old_name']);
             $new = $targetPath . '/' . basename($data['new_name']);
-            checkLock($old); 
-            checkLock($new);
+            checkLock($old); checkLock($new);
             rename($old, $new);
             return ['success' => true];
 
         case 'chmod':
             checkAccess($targetPath, 'w');
             $p = $targetPath . '/' . basename($data['name']);
-            checkLock($p); 
-            chmod($p, octdec($data['mode']));
+            checkLock($p); chmod($p, octdec($data['mode']));
             return ['success' => true];
 
         case 'upload':
@@ -348,31 +340,83 @@ function handleAction($action, $path, $data, $targetPath) {
 try {
     $action = $_GET['action'] ?? '';
     
+    if ($action === 'download') {
+        $path = $_GET['path'] ?? '';
+        $name = $_GET['name'] ?? '';
+        $targetPath = getSafePath($baseDir, $path);
+        $fullPath = $targetPath . '/' . basename($name);
+        
+        checkAccess($targetPath, 'r');
+        if (!file_exists($fullPath)) throw new Exception('Файл или папка не найдены.');
+        checkLock($fullPath);
+
+        if (is_dir($fullPath)) {
+            if (!extension_loaded('zip')) throw new Exception('На сервере не установлено расширение ZIP.');
+            
+            $zipFile = sys_get_temp_dir() . '/' . uniqid('cc_') . '.zip';
+            $zip = new ZipArchive();
+            if ($zip->open($zipFile, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+                throw new Exception('Не удалось создать ZIP архив.');
+            }
+            
+            $dirLen = strlen($fullPath);
+            $items = scanDirRecursive($fullPath, $dirLen);
+            $baseName = basename($fullPath);
+            $zip->addEmptyDir($baseName);
+            
+            foreach ($items as $item) {
+                $localName = $baseName . '/' . $item['rel_path'];
+                if ($item['is_dir']) {
+                    $zip->addEmptyDir($localName);
+                } else {
+                    $zip->addFile($fullPath . '/' . $item['rel_path'], $localName);
+                }
+            }
+            $zip->close();
+            
+            header('Content-Description: File Transfer');
+            header('Content-Type: application/zip');
+            header('Content-Disposition: attachment; filename="' . $baseName . '.zip"');
+            header('Content-Length: ' . filesize($zipFile));
+            readfile($zipFile);
+            unlink($zipFile);
+            exit;
+        } else {
+            header('Content-Description: File Transfer');
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment; filename="' . basename($fullPath) . '"');
+            header('Content-Length: ' . filesize($fullPath));
+            readfile($fullPath);
+            exit;
+        }
+    }
+
+    header('Content-Type: application/json');
+    
     if ($action === 'batch') {
         $input = json_decode(file_get_contents('php://input'), true);
         $responses = [];
-        
         foreach ($input['requests'] ?? [] as $req) {
             try {
                 $reqAction = $req['action'] ?? '';
                 $reqPath = $req['path'] ?? '';
                 $reqData = $req['data'] ?? [];
                 $targetPath = getSafePath($baseDir, $reqPath);
-                
                 $responses[] = handleAction($reqAction, $reqPath, $reqData, $targetPath);
             } catch (Exception $e) {
                 $responses[] = ['error' => $e->getMessage()];
             }
         }
         echo json_encode(['responses' => $responses]);
-    } 
-    else {
+    } else {
         $path = $_GET['path'] ?? '';
         $targetPath = getSafePath($baseDir, $path);
         $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
-        
         echo json_encode(handleAction($action, $path, $data, $targetPath));
     }
 } catch (Exception $e) {
+    if (!headers_sent()) {
+        header('Content-Type: application/json');
+    }
     echo json_encode(['error' => $e->getMessage()]);
 }

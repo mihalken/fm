@@ -34,7 +34,14 @@ function gotoPath(side, path) {
 async function init() {
     const res = await fetch('api.php?action=init');
     appConfig = await res.json(); 
+    
     document.body.setAttribute('data-theme', appConfig.theme);
+    
+    // Применяем заголовок из конфига
+    if (appConfig.window_title) {
+        document.title = appConfig.window_title;
+    }
+    
     state.left.path = appConfig.panes.left;
     state.right.path = appConfig.panes.right;
 
@@ -134,6 +141,19 @@ function renderList(side, data) {
     }
 
     updateToolbar(side);
+}
+
+function doDownload(side) {
+    const name = state[side].selection[0];
+    if (!name) return;
+    const url = `api.php?action=download&path=${encodeURIComponent(state[side].path)}&name=${encodeURIComponent(name)}`;
+    
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 }
 
 async function doPaste(side) {

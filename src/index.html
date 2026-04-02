@@ -15,7 +15,8 @@
         <div class="toolbar">
             <button class="toolbar-btn" onclick="refreshPane('left')" title="Обновить">🔄</button>
             <div class="toolbar-sep"></div>
-            <button class="toolbar-btn" onclick="triggerUpload('left')" title="Загрузить">📤</button>
+            <button class="toolbar-btn" onclick="triggerUpload('left')" title="Загрузить">📥</button>
+            <button class="toolbar-btn needs-one" onclick="doDownload('left')" title="Скачать" disabled>📤</button>
             <button class="toolbar-btn" onclick="doCreateObj('left', 'folder')" title="Новая папка">📁+</button>
             <button class="toolbar-btn" onclick="doCreateObj('left', 'file')" title="Новый файл">📄+</button>
             <div class="toolbar-sep"></div>
@@ -49,7 +50,8 @@
         <div class="toolbar">
             <button class="toolbar-btn" onclick="refreshPane('right')" title="Обновить">🔄</button>
             <div class="toolbar-sep"></div>
-            <button class="toolbar-btn" onclick="triggerUpload('right')" title="Загрузить">📤</button>
+            <button class="toolbar-btn" onclick="triggerUpload('right')" title="Загрузить">📥</button>
+            <button class="toolbar-btn needs-one" onclick="doDownload('right')" title="Скачать" disabled>📤</button>
             <button class="toolbar-btn" onclick="doCreateObj('right', 'folder')" title="Новая папка">📁+</button>
             <button class="toolbar-btn" onclick="doCreateObj('right', 'file')" title="Новый файл">📄+</button>
             <div class="toolbar-sep"></div>
