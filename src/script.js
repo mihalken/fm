@@ -3,7 +3,7 @@ const state = { left: { path: '', selection: [], files: [] }, right: { path: '',
 let clipboard = { type: null, files: [], sourcePath: '' };
 let lastCleanupData = null; 
 let sizeFormat = 'human'; 
-let deleteTargetSide = null; // Для сохранения панели при открытии модального окна удаления
+let deleteTargetSide = null; 
 
 let sortConfig = { left: { col: 'name', dir: 'asc' }, right: { col: 'name', dir: 'asc' } };
 try { const saved = JSON.parse(localStorage.getItem('cc_sort')); if (saved) sortConfig = saved; } catch(e) {}
@@ -134,8 +134,9 @@ function renderList(side, data) {
         const tr = document.createElement('tr');
         if (oldSel.includes(f.name)) { state[side].selection.push(f.name); tr.classList.add('selected'); }
         if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
+        // Добавлен вывод 🔗 для ссылок
         tr.innerHTML = `
-            <td title="${f.name}">${f.isDir?'📁':'📄'} ${f.name}</td>
+            <td title="${f.name}">${f.isDir?'📁':'📄'} ${f.isLink?'🔗 ':''}${f.name}</td>
             <td class="clickable-size" onclick="toggleSizeFormat(event)">${formatSize(f.size)}</td>
             <td>${f.owner_group}</td>
             <td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td>

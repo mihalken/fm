@@ -45,11 +45,24 @@ function modifyTasks($callback) {
     if ($fp) fclose($fp);
 }
 
+// НОВЫЙ ЛОГИЧЕСКИЙ РЕЗОЛВЕР ПУТЕЙ (Не разворачивает ярлыки, но защищает от ../)
 function getSafePath($dir, $rel) {
-    $p = realpath($dir . '/' . $rel);
-    $base = realpath($dir);
-    if ($p !== false && strpos($p, $base) === 0) return $p;
-    throw new Exception('Папка не найдена или недоступна.');
+    $base = rtrim(str_replace('\\', '/', $dir), '/');
+    $parts = explode('/', str_replace('\\', '/', $rel));
+    $safeParts = [];
+    foreach ($parts as $part) {
+        if ($part === '' || $part === '.') continue;
+        if ($part === '..') {
+            array_pop($safeParts);
+        } else {
+            $safeParts[] = $part;
+        }
+    }
+    $path = $base;
+    if (!empty($safeParts)) {
+        $path .= '/' . implode('/', $safeParts);
+    }
+    return rtrim($path, '/');
 }
 
 function checkAccess($path, $type = 'w') {
@@ -83,6 +96,7 @@ function checkLock($path) {
     }
 }
 
+// Защита от бесконечного цикла по ссылкам при рекурсивных операциях
 function scanDirRecursive($dir, $baseLen) {
     $result = [];
     $items = @scandir($dir);
@@ -91,11 +105,12 @@ function scanDirRecursive($dir, $baseLen) {
             if ($item === '.' || $item === '..') continue;
             $path = $dir . '/' . $item;
             $relPath = substr($path, $baseLen + 1);
-            if (is_dir($path)) {
+            
+            if (is_dir($path) && !is_link($path)) { 
                 $result[] = ['rel_path' => $relPath, 'size' => 0, 'is_dir' => true];
                 $result = array_merge($result, scanDirRecursive($path, $baseLen));
             } else {
-                $result[] = ['rel_path' => $relPath, 'size' => filesize($path), 'is_dir' => false];
+                $result[] = ['rel_path' => $relPath, 'size' => @filesize($path) ?: 0, 'is_dir' => false];
             }
         }
     }
@@ -124,8 +139,10 @@ function handleAction($action, $path, $data, $targetPath) {
                 foreach ($items as $file) {
                     if ($file === '.' || $file === '..') continue;
                     $fp = $targetPath . '/' . $file;
-                    $stat = @stat($fp);
+                    $isLink = is_link($fp);
+                    $stat = @stat($fp) ?: @lstat($fp); // Читаем битые ссылки через lstat
                     if (!$stat) continue;
+                    
                     $owner = function_exists('posix_getpwuid') ? @posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
                     $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
                     
@@ -133,7 +150,9 @@ function handleAction($action, $path, $data, $targetPath) {
                     $dt->setTimezone($serverTimeZone);
 
                     $files[] = [
-                        'name' => $file, 'isDir' => is_dir($fp),
+                        'name' => $file, 
+                        'isDir' => is_dir($fp),
+                        'isLink' => $isLink, 
                         'size' => is_dir($fp) ? '-' : (filesize($fp) ?: 0),
                         'owner_group' => ($owner ?: '???') . ':' . ($group ?: '???'),
                         'perms' => substr(sprintf('%o', fileperms($fp)), -4),
@@ -155,7 +174,6 @@ function handleAction($action, $path, $data, $targetPath) {
                 checkAccess($targetPath, 'w');
                 $permanentDelete = [];
                 $moveToTrash = [];
-                // Проверяем флаг принудительного удаления от клиента
                 $forceDelete = !empty($data['force_delete']); 
                 
                 foreach ($data['names'] as $name) {
@@ -164,7 +182,6 @@ function handleAction($action, $path, $data, $targetPath) {
                     $isTrashFolder = ($p === $trashPath);
                     $isInTrash = strpos($p, $trashPath . '/') === 0;
                     
-                    // Если корзина включена, файл не в корзине, и не нажата кнопка "Удалить навсегда"
                     if ($useTrash && !$isTrashFolder && !$isInTrash && !$forceDelete) {
                         $moveToTrash[] = basename($name);
                     } else {
@@ -172,9 +189,14 @@ function handleAction($action, $path, $data, $targetPath) {
                     }
                 }
                 
+                // Безопасное удаление: для ссылок используем только unlink
                 foreach ($permanentDelete as $name) {
                     $p = normalizePath($targetPath . '/' . basename($name));
-                    is_dir($p) ? shell_exec("rm -rf ".escapeshellarg($p)) : @unlink($p);
+                    if (is_link($p)) {
+                        @unlink($p);
+                    } else {
+                        is_dir($p) ? shell_exec("rm -rf ".escapeshellarg($p)) : @unlink($p);
+                    }
                 }
                 
                 if (empty($moveToTrash)) {
@@ -319,7 +341,8 @@ function handleAction($action, $path, $data, $targetPath) {
         case 'cleanup_dirs':
             $srcBase = getSafePath($baseDir, $data['from_path']);
             function removeEmptyDirs($dir) {
-                if (!is_dir($dir)) return;
+                // Игнорируем симлинки при рекурсивной очистке
+                if (!is_dir($dir) || is_link($dir)) return;
                 $items = array_diff(scandir($dir), ['.', '..']);
                 foreach ($items as $item) {
                     if (is_dir($dir . '/' . $item)) removeEmptyDirs($dir . '/' . $item);
@@ -329,7 +352,7 @@ function handleAction($action, $path, $data, $targetPath) {
             foreach ($data['names'] as $name) {
                 $srcPath = $srcBase . '/' . basename($name);
                 checkLock($srcPath);
-                if (is_dir($srcPath)) removeEmptyDirs($srcPath);
+                if (is_dir($srcPath) && !is_link($srcPath)) removeEmptyDirs($srcPath);
             }
             return ['success' => true];
 
@@ -400,10 +423,10 @@ try {
         $fullPath = $targetPath . '/' . basename($name);
         
         checkAccess($targetPath, 'r');
-        if (!file_exists($fullPath)) throw new Exception('Файл или папка не найдены.');
+        if (!file_exists($fullPath) && !is_link($fullPath)) throw new Exception('Файл или папка не найдены.');
         checkLock($fullPath);
 
-        if (is_dir($fullPath)) {
+        if (is_dir($fullPath) && !is_link($fullPath)) {
             if (!extension_loaded('zip')) throw new Exception('На сервере не установлено расширение ZIP.');
             
             $zipFile = sys_get_temp_dir() . '/' . uniqid('cc_') . '.zip';
@@ -438,7 +461,7 @@ try {
             header('Content-Description: File Transfer');
             header('Content-Type: application/octet-stream');
             header('Content-Disposition: attachment; filename="' . basename($fullPath) . '"');
-            header('Content-Length: ' . filesize($fullPath));
+            header('Content-Length: ' . @filesize($fullPath));
             readfile($fullPath);
             exit;
         }
