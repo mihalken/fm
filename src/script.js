@@ -199,7 +199,23 @@ function renderList(side, data) {
         `;
         
         tr.onclick = (e) => toggleSelect(side, f.name, index, e); 
-        tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : openEditor(side, f.name, f.size);
+        
+        tr.ondblclick = async () => {
+            if (f.isDir) {
+                enterFolder(side, f.name);
+            } else {
+                // Если это не директория, сначала запрашиваем информацию, чтобы узнать, текст это или бинарник
+                const res = await fetch(`api.php?action=get_file_info&path=${encodeURIComponent(state[side].path)}`, {
+                    method: 'POST', body: JSON.stringify({ name: f.name })
+                });
+                const data = await res.json();
+                if (data.info && data.info.is_text) {
+                    openEditor(side, f.name, f.size); // Открываем в редакторе
+                } else {
+                    openFileInfo(side, f.name); // Открываем свойства
+                }
+            }
+        };
         list.appendChild(tr);
     });
     
@@ -512,7 +528,10 @@ function executeDelete(mode) {
 
 function doRename(s) { const old = state[s].selection[0]; const n = prompt("Новое имя:", old); if(n) apiCall('rename', s, { old_name: old, new_name: n }); }
 function doCreateObj(s, type) { const n = prompt(type === 'folder' ? "Имя папки:" : "Имя файла:"); if(n) apiCall(type === 'folder' ? 'create_folder' : 'create_file', s, { name: n }); }
-
+function doShowInfo(s) { 
+    const name = state[s].selection[0]; 
+    if(name) openFileInfo(s, name); 
+}
 async function openEditor(side, fileName, fileSize) {
     const limit = appConfig.max_edit_size || (1024 * 1024);
     if (fileSize !== undefined && fileSize > limit) {
@@ -535,6 +554,57 @@ async function openEditor(side, fileName, fileSize) {
     m.style.display = 'flex';
 }
 
+async function openFileInfo(side, fileName) {
+    const res = await fetch(`api.php?action=get_file_info&path=${encodeURIComponent(state[side].path)}`, {
+        method: 'POST', body: JSON.stringify({ name: fileName })
+    });
+    const data = await res.json();
+    
+    if (data.error) { 
+        showToast(data.error, 'error'); 
+        return; 
+    }
+    
+    const info = data.info;
+    document.getElementById('infoTitle').innerText = info.name;
+    
+    // Формируем красивую таблицу с данными
+    let html = `<table style="width:100%; border-collapse: collapse;">`;
+    const addRow = (label, val) => {
+        html += `<tr><td style="padding:4px 0; color:#888; width:40%;">${label}:</td><td style="padding:4px 0; word-break: break-all;">${val}</td></tr>`;
+    };
+
+    addRow('Тип', info.type);
+    if (info.mime && info.mime !== 'Неизвестно') addRow('MIME-тип', info.mime);
+    if (info.os_info) addRow('ОС детект', info.os_info);
+    
+    html += `<tr><td colspan="2"><hr style="border:0; border-top:1px solid var(--border-color); margin:8px 0;"></td></tr>`;
+    
+    addRow('Размер', formatSize(info.size) + ` <span style="font-size:11px; opacity:0.6;">(${info.size} байт)</span>`);
+    addRow('Изменен', info.modified);
+    addRow('Создан', info.created);
+    addRow('Открыт', info.accessed);
+    
+    html += `<tr><td colspan="2"><hr style="border:0; border-top:1px solid var(--border-color); margin:8px 0;"></td></tr>`;
+    
+    addRow('Владелец', info.owner);
+    addRow('Группа', info.group);
+    addRow('Права', `<span style="font-family:monospace;">${info.perms}</span>`);
+    
+    let accessFlags = [];
+    if (info.is_readable) accessFlags.push('Чтение');
+    if (info.is_writable) accessFlags.push('Запись');
+    if (info.is_executable) accessFlags.push('Выполнение');
+    addRow('Доступ', accessFlags.join(', ') || 'Нет');
+    
+    addRow('Полный путь', `<span style="font-family:monospace; font-size:11px;">${info.path}</span>`);
+
+    html += `</table>`;
+    
+    document.getElementById('infoContent').innerHTML = html;
+    document.getElementById('infoModal').style.display = 'flex';
+}
+
 async function saveFile() { const m = document.getElementById('editorModal'); await apiCall('save_file', m.dataset.side, { name: m.dataset.name, content: document.getElementById('editorContent').value }); closeModal('editorModal'); }
 
 function openPerms(side) {
@@ -550,7 +620,9 @@ function updateOctal() {
     const calc = (r, w, x) => (document.getElementById(r).checked?4:0)+(document.getElementById(w).checked?2:0)+(document.getElementById(x).checked?1:0);
     document.getElementById('permsOctal').innerText = `0${calc('p-u-r','p-u-w','p-u-x')}${calc('p-g-r','p-g-w','p-g-x')}${calc('p-o-r','p-o-w','p-o-x')}`;
 }
+
 async function savePerms() { const m = document.getElementById('permsModal'); await apiCall('chmod', m.dataset.side, { name: m.dataset.name, mode: document.getElementById('permsOctal').innerText }); closeModal('permsModal'); }
+
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 function enterFolder(s, n) { state[s].path += (state[s].path ? '/' : '') + n; loadFiles(s); }
 function goUp(s) { let p = state[s].path.split('/'); p.pop(); state[s].path = p.join('/'); loadFiles(s); }
@@ -598,7 +670,6 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('DOMContentLoaded', init);
 
-// === ИНТЕРАКТИВНЫЙ РАЗДЕЛИТЕЛЬ (SPLITTER) ===
 document.addEventListener('DOMContentLoaded', () => {
     let splitRatio = 50; 
     try { 

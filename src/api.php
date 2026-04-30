@@ -357,7 +357,6 @@ class FileManagerApi {
         return ['success' => true];
     }
 
-    // Умный опрос задач с автоматической очисткой через 60 секунд
     private function actionPollTasks() { 
         $tasks = $this->getTasks();
         $needsCleanup = false;
@@ -398,7 +397,6 @@ class FileManagerApi {
         return $tasks; 
     }
 
-    // Кнопка принудительной очистки всех завершенных задач
     private function actionClearCompleted($path, $data) {
         $this->modifyTasks(function($tasks) {
             foreach ($tasks as $id => $t) {
@@ -478,6 +476,59 @@ class FileManagerApi {
         $header = @file_get_contents($fp, false, null, 0, 1024);
         if (strpos($header, "\0") !== false) throw new Exception('Отклонено: файл является бинарным.');
         return ['content' => @file_get_contents($fp)];
+    }
+    
+    private function actionGetFileInfo($path, $data, $targetPath) {
+        $this->checkAccess($targetPath, 'r');
+        $fullPath = $targetPath . '/' . basename($data['name']);
+        
+        if (!file_exists($fullPath)) throw new Exception('Файл не найден.');
+
+        $stat = @stat($fullPath) ?: @lstat($fullPath);
+        if (!$stat) throw new Exception('Не удалось прочитать свойства файла.');
+
+        $owner = function_exists('posix_getpwuid') ? @posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
+        $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
+        
+        $dtM = new DateTime('@' . $stat['mtime']); $dtM->setTimezone($this->serverTimeZone);
+        $dtA = new DateTime('@' . $stat['atime']); $dtA->setTimezone($this->serverTimeZone);
+        $dtC = new DateTime('@' . $stat['ctime']); $dtC->setTimezone($this->serverTimeZone);
+
+        $info = [
+            'name' => basename($fullPath),
+            'path' => $fullPath,
+            'size' => filesize($fullPath) ?: 0,
+            'type' => is_dir($fullPath) ? 'Директория' : (is_link($fullPath) ? 'Символическая ссылка' : 'Файл'),
+            'mime' => function_exists('mime_content_type') && !is_dir($fullPath) ? @mime_content_type($fullPath) : 'Неизвестно',
+            'owner' => $owner . ' (UID: ' . $stat['uid'] . ')',
+            'group' => $group . ' (GID: ' . $stat['gid'] . ')',
+            'perms' => substr(sprintf('%o', fileperms($fullPath)), -4),
+            'modified' => $dtM->format('d.m.Y H:i:s'),
+            'accessed' => $dtA->format('d.m.Y H:i:s'),
+            'created' => $dtC->format('d.m.Y H:i:s'),
+            'is_readable' => is_readable($fullPath),
+            'is_writable' => is_writable($fullPath),
+            'is_executable' => is_executable($fullPath)
+        ];
+
+        // Пытаемся получить расширенную информацию через утилиту ОС 'file' (для Linux/Mac)
+        if (!is_dir($fullPath) && function_exists('exec') && stristr(PHP_OS, 'WIN') === false) {
+            $cmd = "file -b " . escapeshellarg($fullPath);
+            $osInfo = @exec($cmd);
+            if ($osInfo) {
+                $info['os_info'] = $osInfo;
+            }
+        }
+
+        // Базовая эвристика для определения "текстовости" файла
+        if (!is_dir($fullPath)) {
+            $header = @file_get_contents($fullPath, false, null, 0, 1024);
+            $info['is_text'] = (strpos($header, "\0") === false);
+        } else {
+            $info['is_text'] = false;
+        }
+
+        return ['info' => $info];
     }
 
     private function actionSaveFile($path, $data, $targetPath) {

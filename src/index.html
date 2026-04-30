@@ -35,6 +35,7 @@
             <button class="toolbar-btn needs-sel" onclick="addToClipboard('left', 'cut')" title="Вырезать" disabled>✂️</button>
             <button class="toolbar-btn btn-paste" onclick="doPaste('left')" title="Вставить" disabled>📋</button>
             <div class="toolbar-sep"></div>
+            <button class="toolbar-btn needs-one" onclick="doShowInfo('left')" title="Свойства" disabled>ℹ️</button>
             <button class="toolbar-btn needs-one" onclick="doRename('left')" title="Имя" disabled>✏️</button>
             <button class="toolbar-btn needs-one" onclick="openPerms('left')" title="Права" disabled>🛡️</button>
             <button class="toolbar-btn needs-sel" onclick="doDelete('left')" title="Удалить" disabled>❌</button>
@@ -74,6 +75,7 @@
             <button class="toolbar-btn needs-sel" onclick="addToClipboard('right', 'cut')" title="Вырезать" disabled>✂️</button>
             <button class="toolbar-btn btn-paste" onclick="doPaste('right')" title="Вставить" disabled>📋</button>
             <div class="toolbar-sep"></div>
+            <button class="toolbar-btn needs-one" onclick="doShowInfo('right')" title="Свойства" disabled>ℹ️</button>
             <button class="toolbar-btn needs-one" onclick="doRename('right')" title="Имя" disabled>✏️</button>
             <button class="toolbar-btn needs-one" onclick="openPerms('right')" title="Права" disabled>🛡️</button>
             <button class="toolbar-btn needs-sel" onclick="doDelete('right')" title="Удалить" disabled>❌</button>
@@ -117,6 +119,21 @@
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
             <button onclick="closeModal('editorModal')">Отмена</button>
             <button onclick="saveFile()" style="background:var(--accent); color:#fff; border:none; padding:8px 20px; border-radius:4px; cursor:pointer">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<div id="infoModal" class="modal-overlay">
+    <div class="modal">
+        <h3 style="display:flex; justify-content:space-between; align-items:center;">
+            <span>ℹ️ Свойства: <span id="infoTitle" style="color:var(--accent);"></span></span>
+            <button onclick="closeModal('infoModal')" style="background:none; border:none; color:var(--text-color); padding:0; font-size:16px;">✖</button>
+        </h3>
+        <div id="infoContent" style="font-size: 13px; margin-top: 15px; line-height: 1.6;">
+            <!-- Сюда JS подставит таблицу с данными -->
+        </div>
+        <div style="display:flex; justify-content:flex-end; margin-top:20px;">
+            <button onclick="closeModal('infoModal')" style="background:var(--accent); color:#fff; border:none; padding:8px 20px; border-radius:4px; cursor:pointer">Закрыть</button>
         </div>
     </div>
 </div>
