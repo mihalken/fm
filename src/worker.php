@@ -41,7 +41,7 @@ $from = rtrim($baseDir, '/') . '/' . ltrim($task['from'], '/');
 $to = rtrim($baseDir, '/') . '/' . ltrim($task['to'], '/');
 
 // ---------------------------------------------------------
-// ОПТИМИЗАЦИЯ ДЛЯ ОДНОГО ФИЗИЧЕСКОГО ДИСКА
+// ОПТИМИЗАЦИЯ ДЛЯ ОДНОГО ФИЗИЧЕСКОГО ДИСКА (Скорость ОС)
 // ---------------------------------------------------------
 $fromDev = @stat($from)['dev'];
 $toDirDev = @stat(dirname($to))['dev'];
@@ -53,14 +53,14 @@ if ($fromDev !== null && $fromDev === $toDirDev) {
             updateTask($taskId, fn($t) => array_merge($t, ['offset' => $t['size'], 'status' => 'completed', 'native' => false]));
             exit;
         }
-        updateTask($taskId, fn($t) => array_merge($t, ['native' => false])); // Откат флага при ошибке
+        updateTask($taskId, fn($t) => array_merge($t, ['native' => false]));
     } else if ($task['type'] === 'copy') {
         updateTask($taskId, fn($t) => array_merge($t, ['native' => true]));
         if (@copy($from, $to)) {
             updateTask($taskId, fn($t) => array_merge($t, ['offset' => $t['size'], 'status' => 'completed', 'native' => false]));
             exit;
         }
-        updateTask($taskId, fn($t) => array_merge($t, ['native' => false])); // Откат флага при ошибке
+        updateTask($taskId, fn($t) => array_merge($t, ['native' => false]));
     }
 }
 // ---------------------------------------------------------

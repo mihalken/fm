@@ -3,10 +3,10 @@ return [
     'panes' => ['left' => 'a', 'right' => 'b'],
     'theme' => 'dark',
     'base_dir' => __DIR__ . '/uploads',
-    'refresh_interval' => 5,
+    'refresh_interval' => 30,
     'tasks_file' => __DIR__ . '/tasks.json',
-    'chunk_size' => 100 * 1024 * 1024,
+    'chunk_size' => 2 * 1024 * 1024, // Чанки по 2 МБ для разных дисков
     'max_edit_size' => 1 * 1024 * 1024,
     'window_title' => 'Simple File Manager',
-    'use_trash' => true
+    'use_trash' => false // Измените на true для включения корзины (.trash)
 ];
