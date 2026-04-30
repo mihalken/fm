@@ -1,4 +1,5 @@
 let appConfig = {};
+let tasksMinimized = false;
 const state = { 
     left: { path: '', selection: [], files: [], renderedFiles: [], lastClickIndex: -1 }, 
     right: { path: '', selection: [], files: [], renderedFiles: [], lastClickIndex: -1 } 
@@ -8,7 +9,6 @@ let lastCleanupData = null;
 let sizeFormat = 'human'; 
 let deleteTargetSide = null; 
 let activeSide = 'left';
-let tasksMinimized = false;
 
 let sortConfig = { left: { col: 'name', dir: 'asc' }, right: { col: 'name', dir: 'asc' } };
 try { const saved = JSON.parse(localStorage.getItem('cc_sort')); if (saved) sortConfig = saved; } catch(e) {}
@@ -47,8 +47,7 @@ async function calcFolderSize(side, td, e) {
     
     try {
         const res = await fetch(`api.php?action=get_folder_size&path=${encodeURIComponent(state[side].path)}`, {
-            method: 'POST',
-            body: JSON.stringify({ name: name })
+            method: 'POST', body: JSON.stringify({ name: name })
         });
         const data = await res.json();
         
@@ -58,13 +57,11 @@ async function calcFolderSize(side, td, e) {
             td.onclick = (event) => calcFolderSize(side, td, event);
             td.style.cursor = 'pointer';
         } else {
-            // --- НОВОЕ: Запоминаем посчитанный размер в стейт ---
             const fileObj = state[side].files.find(f => f.name === name);
             if (fileObj) {
                 fileObj.size = data.size;
-                fileObj.sizeCalculated = true; // Отмечаем, что это больше не загадка
+                fileObj.sizeCalculated = true;
             }
-
             td.innerText = formatSize(data.size);
             td.onclick = (event) => toggleSizeFormat(event);
             td.style.cursor = 'pointer';
@@ -188,8 +185,7 @@ function renderList(side, data) {
         if (oldSel.includes(f.name)) { state[side].selection.push(f.name); tr.classList.add('selected'); }
         if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
         
-        // --- НОВОЕ: Подстановка нужного onclick для размера ---
-        const sizeHTML = (f.isDir && !f.sizeCalculated)
+        const sizeHTML = (f.isDir && !f.sizeCalculated) 
             ? `<td class="clickable-size" onclick="calcFolderSize('${side}', this, event)" title="Нажмите, чтобы подсчитать размер">-</td>`
             : `<td class="clickable-size" onclick="toggleSizeFormat(event)" title="Сменить формат">${formatSize(f.size)}</td>`;
 
@@ -221,7 +217,6 @@ function renderList(side, data) {
         let acc = '';
         parts.forEach((part, index) => {
             acc += (acc ? '/' : '') + part;
-            
             const crumb = document.createElement('span');
             crumb.className = 'breadcrumb';
             crumb.innerText = part;
@@ -314,13 +309,26 @@ async function doPaste(side) {
     pollTasks(); 
 }
 
+function toggleTasks() {
+    tasksMinimized = !tasksMinimized;
+    const widget = document.getElementById('tasks-widget');
+    const chevron = document.getElementById('task-chevron');
+    if (tasksMinimized) {
+        widget.classList.add('minimized');
+        chevron.innerText = '▲';
+    } else {
+        widget.classList.remove('minimized');
+        chevron.innerText = '▼';
+    }
+}
+
 async function pollTasks() {
     const res = await fetch('api.php?action=poll_tasks');
     const tasks = await res.json();
     const widget = document.getElementById('tasks-widget');
     const container = document.getElementById('tasks-container');
     const countSpan = document.getElementById('task-count');
-    const btnClear = document.getElementById('btn-clear-tasks'); // Кнопка очистки
+    const btnClear = document.getElementById('btn-clear-tasks');
     
     const taskList = Object.values(tasks);
     
@@ -340,7 +348,6 @@ async function pollTasks() {
     widget.style.display = 'flex';
     countSpan.innerText = taskList.length;
 
-    // Проверяем, есть ли завершенные задачи, чтобы показать кнопку "Очистить"
     const hasDoneTasks = taskList.some(t => ['completed', 'cancelled', 'error'].includes(t.status));
     if (btnClear) btnClear.style.display = hasDoneTasks ? 'block' : 'none';
 
@@ -413,7 +420,6 @@ async function pollTasks() {
                 controlsHTML += `<button class="task-btn" style="color:#dc3545" onclick="controlTask('${t.id}', 'cancel')" title="Отмена">✖</button>`;
             }
         }
-        // Убрали else блок. Если isDone — переменная controlsHTML остается пустой (иконки корзины нет).
 
         if (controlsDiv.innerHTML !== controlsHTML) {
             controlsDiv.innerHTML = controlsHTML;
@@ -444,17 +450,10 @@ async function clearTask(id) {
     pollTasks();
 }
 
-function toggleTasks() {
-    tasksMinimized = !tasksMinimized;
-    const widget = document.getElementById('tasks-widget');
-    const chevron = document.getElementById('task-chevron');
-    if (tasksMinimized) {
-        widget.classList.add('minimized');
-        chevron.innerText = '▲';
-    } else {
-        widget.classList.remove('minimized');
-        chevron.innerText = '▼';
-    }
+async function clearCompletedTasks(e) {
+    e.stopPropagation();
+    await fetch('api.php?action=clear_completed', { method: 'POST', body: JSON.stringify({}) });
+    pollTasks(); 
 }
 
 function updateToolbar(side) {
@@ -523,8 +522,7 @@ async function openEditor(side, fileName, fileSize) {
     }
 
     const res = await fetch(`api.php?action=read_file&path=${encodeURIComponent(state[side].path)}`, {
-        method: 'POST',
-        body: JSON.stringify({ name: fileName }) 
+        method: 'POST', body: JSON.stringify({ name: fileName }) 
     });
     const data = await res.json();
     if (data.error) { showToast(data.error, 'error'); return; }
@@ -568,12 +566,6 @@ async function handleUpload(s, i) {
     i.value = ''; loadFiles(s);
 }
 
-async function clearCompletedTasks(e) {
-    e.stopPropagation(); // Чтобы клик не свернул виджет
-    await fetch('api.php?action=clear_completed', { method: 'POST', body: JSON.stringify({}) });
-    pollTasks(); // Моментально обновляем виджет
-}
-
 document.addEventListener('mousedown', (e) => {
     if (e.target.closest('#pane-left')) activeSide = 'left';
     else if (e.target.closest('#pane-right')) activeSide = 'right';
@@ -605,3 +597,58 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('DOMContentLoaded', init);
+
+// === ИНТЕРАКТИВНЫЙ РАЗДЕЛИТЕЛЬ (SPLITTER) ===
+document.addEventListener('DOMContentLoaded', () => {
+    let splitRatio = 50; 
+    try { 
+        const savedSplit = localStorage.getItem('cc_split'); 
+        if (savedSplit) splitRatio = parseFloat(savedSplit); 
+    } catch(e) {}
+
+    function applySplit(ratio) {
+        if (window.innerWidth <= 768) return; 
+        const leftPane = document.getElementById('pane-left');
+        const rightPane = document.getElementById('pane-right');
+        if (leftPane && rightPane) {
+            leftPane.style.width = `calc(${ratio}% - 2px)`; 
+            leftPane.style.flex = 'none'; 
+            rightPane.style.flex = '1';   
+        }
+    }
+
+    applySplit(splitRatio);
+    window.addEventListener('resize', () => applySplit(splitRatio));
+
+    const resizer = document.getElementById('resizer');
+    let isResizing = false;
+
+    if (resizer) {
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none'; 
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            let newRatio = (e.clientX / window.innerWidth) * 100;
+            if (newRatio < 10) newRatio = 10;
+            if (newRatio > 90) newRatio = 90;
+            
+            splitRatio = newRatio;
+            applySplit(splitRatio);
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove('active');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                try { localStorage.setItem('cc_split', splitRatio); } catch(e) {}
+            }
+        });
+    }
+});
