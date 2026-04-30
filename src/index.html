@@ -36,6 +36,16 @@
             <button class="toolbar-btn btn-paste" onclick="doPaste('left')" title="Вставить" disabled>📋</button>
             <div class="toolbar-sep"></div>
             <button class="toolbar-btn needs-one" onclick="doShowInfo('left')" title="Свойства" disabled>ℹ️</button>
+            
+            <!-- Выпадающее меню: Инструменты -->
+            <div class="toolbar-sep tool-menu-container" style="display:none;"></div>
+            <div class="dropdown tool-menu-container" style="display:none;">
+                <button class="toolbar-btn dropdown-btn needs-one" disabled title="Инструменты">🛠️ ▼</button>
+                <div class="dropdown-content">
+                    <button class="dropdown-item tool-ffprobe" onclick="doFfprobe('left')" style="display:none;">🎬 Медиа инфо (ffprobe)</button>
+                </div>
+            </div>
+            
             <button class="toolbar-btn needs-one" onclick="doRename('left')" title="Имя" disabled>✏️</button>
             <button class="toolbar-btn needs-one" onclick="openPerms('left')" title="Права" disabled>🛡️</button>
             <button class="toolbar-btn needs-sel" onclick="doDelete('left')" title="Удалить" disabled>❌</button>
@@ -76,6 +86,16 @@
             <button class="toolbar-btn btn-paste" onclick="doPaste('right')" title="Вставить" disabled>📋</button>
             <div class="toolbar-sep"></div>
             <button class="toolbar-btn needs-one" onclick="doShowInfo('right')" title="Свойства" disabled>ℹ️</button>
+            
+            <!-- Выпадающее меню: Инструменты -->
+            <div class="toolbar-sep tool-menu-container" style="display:none;"></div>
+            <div class="dropdown tool-menu-container" style="display:none;">
+                <button class="toolbar-btn dropdown-btn needs-one" disabled title="Инструменты">🛠️ ▼</button>
+                <div class="dropdown-content">
+                    <button class="dropdown-item tool-ffprobe" onclick="doFfprobe('right')" style="display:none;">🎬 Медиа инфо (ffprobe)</button>
+                </div>
+            </div>
+            
             <button class="toolbar-btn needs-one" onclick="doRename('right')" title="Имя" disabled>✏️</button>
             <button class="toolbar-btn needs-one" onclick="openPerms('right')" title="Права" disabled>🛡️</button>
             <button class="toolbar-btn needs-sel" onclick="doDelete('right')" title="Удалить" disabled>❌</button>
@@ -123,21 +143,6 @@
     </div>
 </div>
 
-<div id="infoModal" class="modal-overlay">
-    <div class="modal">
-        <h3 style="display:flex; justify-content:space-between; align-items:center;">
-            <span>ℹ️ Свойства: <span id="infoTitle" style="color:var(--accent);"></span></span>
-            <button onclick="closeModal('infoModal')" style="background:none; border:none; color:var(--text-color); padding:0; font-size:16px;">✖</button>
-        </h3>
-        <div id="infoContent" style="font-size: 13px; margin-top: 15px; line-height: 1.6;">
-            <!-- Сюда JS подставит таблицу с данными -->
-        </div>
-        <div style="display:flex; justify-content:flex-end; margin-top:20px;">
-            <button onclick="closeModal('infoModal')" style="background:var(--accent); color:#fff; border:none; padding:8px 20px; border-radius:4px; cursor:pointer">Закрыть</button>
-        </div>
-    </div>
-</div>
-
 <div id="permsModal" class="modal-overlay">
     <div class="modal">
         <h3>🛡️ Права доступа</h3>
@@ -151,6 +156,32 @@
         <div style="display:flex; justify-content:flex-end; gap:10px;">
             <button onclick="closeModal('permsModal')">Отмена</button>
             <button onclick="savePerms()" style="background:var(--accent); color:#fff; border:none; padding:5px 15px; border-radius:4px; cursor:pointer">ОК</button>
+        </div>
+    </div>
+</div>
+
+<div id="infoModal" class="modal-overlay">
+    <div class="modal">
+        <h3 style="display:flex; justify-content:space-between; align-items:center;">
+            <span>ℹ️ Свойства: <span id="infoTitle" style="color:var(--accent);"></span></span>
+            <button onclick="closeModal('infoModal')" style="background:none; border:none; color:var(--text-color); padding:0; font-size:16px; cursor:pointer;">✖</button>
+        </h3>
+        <div id="infoContent" style="font-size: 13px; margin-top: 15px; line-height: 1.6;"></div>
+        <div style="display:flex; justify-content:flex-end; margin-top:20px;">
+            <button onclick="closeModal('infoModal')" style="background:var(--accent); color:#fff; border:none; padding:8px 20px; border-radius:4px; cursor:pointer">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<div id="ffprobeModal" class="modal-overlay">
+    <div class="modal" style="width: 500px; max-height: 80vh; display:flex; flex-direction:column;">
+        <h3 style="display:flex; justify-content:space-between; align-items:center;">
+            <span>🎬 Медиа инфо: <span id="ffprobeTitle" style="color:var(--accent);"></span></span>
+            <button onclick="closeModal('ffprobeModal')" style="background:none; border:none; color:var(--text-color); padding:0; font-size:16px; cursor:pointer;">✖</button>
+        </h3>
+        <div id="ffprobeContent" style="font-size: 13px; margin-top: 15px; flex-grow: 1; overflow-y: auto;"></div>
+        <div style="display:flex; justify-content:flex-end; margin-top:20px;">
+            <button onclick="closeModal('ffprobeModal')" style="background:var(--accent); color:#fff; border:none; padding:8px 20px; border-radius:4px; cursor:pointer">Закрыть</button>
         </div>
     </div>
 </div>

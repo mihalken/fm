@@ -23,7 +23,6 @@ class FileManagerApi {
             $this->baseDir = realpath($this->config['base_dir']);
         }
 
-        // Жестко задаем путь во временной папке ОС
         $this->tasksFile = sys_get_temp_dir() . '/fm_tasks_' . md5(__DIR__) . '.json';
         
         if (!file_exists($this->tasksFile)) {
@@ -112,7 +111,6 @@ class FileManagerApi {
         return $result;
     }
 
-    // --- НОВОЕ: Рекурсивный подсчет размера папки ---
     private function getDirSize($dir) {
         $size = 0;
         $items = @scandir($dir);
@@ -120,7 +118,7 @@ class FileManagerApi {
             foreach ($items as $item) {
                 if ($item === '.' || $item === '..') continue;
                 $path = $dir . '/' . $item;
-                if (is_link($path)) continue; // Защита от бесконечных симлинков
+                if (is_link($path)) continue; 
                 if (is_dir($path)) {
                     $size += $this->getDirSize($path);
                 } else {
@@ -181,7 +179,9 @@ class FileManagerApi {
             'panes' => $this->config['panes'],
             'max_edit_size' => $this->config['max_edit_size'] ?? 1048576,
             'window_title' => $this->config['window_title'] ?? 'Simple File Manager',
-            'use_trash' => $this->config['use_trash'] ?? false
+            'use_trash' => $this->config['use_trash'] ?? false,
+            // Передаем флаг активности утилиты ffprobe
+            'ffprobe_enabled' => !empty($this->config['ffprobe_path']) && @file_exists($this->config['ffprobe_path'])
         ];
     }
 
@@ -224,8 +224,79 @@ class FileManagerApi {
         $this->checkAccess($targetPath, 'r');
         $fullPath = $targetPath . '/' . basename($data['name']);
         if (!is_dir($fullPath)) throw new Exception('Запрошенный объект не является папкой.');
-        
         return ['size' => $this->getDirSize($fullPath)];
+    }
+
+    private function actionGetFileInfo($path, $data, $targetPath) {
+        $this->checkAccess($targetPath, 'r');
+        $fullPath = $targetPath . '/' . basename($data['name']);
+        
+        if (!file_exists($fullPath)) throw new Exception('Файл не найден.');
+
+        $stat = @stat($fullPath) ?: @lstat($fullPath);
+        if (!$stat) throw new Exception('Не удалось прочитать свойства файла.');
+
+        $owner = function_exists('posix_getpwuid') ? @posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
+        $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
+        
+        $dtM = new DateTime('@' . $stat['mtime']); $dtM->setTimezone($this->serverTimeZone);
+        $dtA = new DateTime('@' . $stat['atime']); $dtA->setTimezone($this->serverTimeZone);
+        $dtC = new DateTime('@' . $stat['ctime']); $dtC->setTimezone($this->serverTimeZone);
+
+        $info = [
+            'name' => basename($fullPath),
+            'path' => $fullPath,
+            'size' => filesize($fullPath) ?: 0,
+            'type' => is_dir($fullPath) ? 'Директория' : (is_link($fullPath) ? 'Символическая ссылка' : 'Файл'),
+            'mime' => function_exists('mime_content_type') && !is_dir($fullPath) ? @mime_content_type($fullPath) : 'Неизвестно',
+            'owner' => $owner . ' (UID: ' . $stat['uid'] . ')',
+            'group' => $group . ' (GID: ' . $stat['gid'] . ')',
+            'perms' => substr(sprintf('%o', fileperms($fullPath)), -4),
+            'modified' => $dtM->format('d.m.Y H:i:s'),
+            'accessed' => $dtA->format('d.m.Y H:i:s'),
+            'created' => $dtC->format('d.m.Y H:i:s'),
+            'is_readable' => is_readable($fullPath),
+            'is_writable' => is_writable($fullPath),
+            'is_executable' => is_executable($fullPath)
+        ];
+
+        if (!is_dir($fullPath) && function_exists('exec') && stristr(PHP_OS, 'WIN') === false) {
+            $cmd = "file -b " . escapeshellarg($fullPath);
+            $osInfo = @exec($cmd);
+            if ($osInfo) {
+                $info['os_info'] = $osInfo;
+            }
+        }
+
+        if (!is_dir($fullPath)) {
+            $header = @file_get_contents($fullPath, false, null, 0, 1024);
+            $info['is_text'] = (strpos($header, "\0") === false);
+        } else {
+            $info['is_text'] = false;
+        }
+
+        return ['info' => $info];
+    }
+
+    // --- НОВОЕ: Инструмент ffprobe ---
+    private function actionFfprobe($path, $data, $targetPath) {
+        $this->checkAccess($targetPath, 'r');
+        $fullPath = $targetPath . '/' . basename($data['name']);
+        
+        if (!file_exists($fullPath) || is_dir($fullPath)) throw new Exception('Недопустимый файл для анализа.');
+        
+        $ffprobe = $this->config['ffprobe_path'] ?? '';
+        if (!$ffprobe || !@file_exists($ffprobe)) throw new Exception('Утилита ffprobe не настроена на сервере.');
+        
+        $cmd = escapeshellarg($ffprobe) . ' -v quiet -print_format json -show_format -show_streams ' . escapeshellarg($fullPath);
+        $output = @shell_exec($cmd);
+        
+        if (!$output) throw new Exception('Ошибка запуска ffprobe или файл не поддерживается.');
+        
+        $json = json_decode($output, true);
+        if (!$json) throw new Exception('Не удалось разобрать ответ ffprobe.');
+        
+        return ['ffprobe' => $json, 'name' => basename($fullPath)];
     }
 
     private function actionTransferOs($path, $data, $targetPath) {
@@ -362,7 +433,6 @@ class FileManagerApi {
         $needsCleanup = false;
         $now = time();
         
-        // Быстро проверяем, есть ли завершенные задачи, требующие таймера или удаления
         foreach ($tasks as $t) {
             if (in_array($t['status'], ['completed', 'cancelled', 'error'])) {
                 if (!isset($t['finished_at']) || $now - $t['finished_at'] >= 60) {
@@ -372,27 +442,24 @@ class FileManagerApi {
             }
         }
         
-        // Если нашли, обновляем файл
         if ($needsCleanup) {
             $this->modifyTasks(function($tasks) use ($now) {
                 foreach ($tasks as $id => $t) {
                     if (in_array($t['status'], ['completed', 'cancelled', 'error'])) {
                         if (!isset($t['finished_at'])) {
-                            // Засекаем время завершения
                             $tasks[$id]['finished_at'] = $now;
                         } elseif ($now - $t['finished_at'] >= 60) {
-                            // Удаляем физический мусор, если задача была отменена или с ошибкой
                             if ($t['status'] !== 'completed') {
                                 $dstDir = realpath($this->baseDir . '/' . dirname($t['to']));
                                 if ($dstDir) @unlink($dstDir . '/' . basename($t['to']));
                             }
-                            unset($tasks[$id]); // Удаляем саму задачу (прошла 1 минута)
+                            unset($tasks[$id]); 
                         }
                     }
                 }
                 return $tasks;
             });
-            return $this->getTasks(); // Возвращаем уже очищенный список
+            return $this->getTasks();
         }
         return $tasks; 
     }
@@ -477,59 +544,6 @@ class FileManagerApi {
         if (strpos($header, "\0") !== false) throw new Exception('Отклонено: файл является бинарным.');
         return ['content' => @file_get_contents($fp)];
     }
-    
-    private function actionGetFileInfo($path, $data, $targetPath) {
-        $this->checkAccess($targetPath, 'r');
-        $fullPath = $targetPath . '/' . basename($data['name']);
-        
-        if (!file_exists($fullPath)) throw new Exception('Файл не найден.');
-
-        $stat = @stat($fullPath) ?: @lstat($fullPath);
-        if (!$stat) throw new Exception('Не удалось прочитать свойства файла.');
-
-        $owner = function_exists('posix_getpwuid') ? @posix_getpwuid($stat['uid'])['name'] : $stat['uid'];
-        $group = function_exists('posix_getgrgid') ? @posix_getgrgid($stat['gid'])['name'] : $stat['gid'];
-        
-        $dtM = new DateTime('@' . $stat['mtime']); $dtM->setTimezone($this->serverTimeZone);
-        $dtA = new DateTime('@' . $stat['atime']); $dtA->setTimezone($this->serverTimeZone);
-        $dtC = new DateTime('@' . $stat['ctime']); $dtC->setTimezone($this->serverTimeZone);
-
-        $info = [
-            'name' => basename($fullPath),
-            'path' => $fullPath,
-            'size' => filesize($fullPath) ?: 0,
-            'type' => is_dir($fullPath) ? 'Директория' : (is_link($fullPath) ? 'Символическая ссылка' : 'Файл'),
-            'mime' => function_exists('mime_content_type') && !is_dir($fullPath) ? @mime_content_type($fullPath) : 'Неизвестно',
-            'owner' => $owner . ' (UID: ' . $stat['uid'] . ')',
-            'group' => $group . ' (GID: ' . $stat['gid'] . ')',
-            'perms' => substr(sprintf('%o', fileperms($fullPath)), -4),
-            'modified' => $dtM->format('d.m.Y H:i:s'),
-            'accessed' => $dtA->format('d.m.Y H:i:s'),
-            'created' => $dtC->format('d.m.Y H:i:s'),
-            'is_readable' => is_readable($fullPath),
-            'is_writable' => is_writable($fullPath),
-            'is_executable' => is_executable($fullPath)
-        ];
-
-        // Пытаемся получить расширенную информацию через утилиту ОС 'file' (для Linux/Mac)
-        if (!is_dir($fullPath) && function_exists('exec') && stristr(PHP_OS, 'WIN') === false) {
-            $cmd = "file -b " . escapeshellarg($fullPath);
-            $osInfo = @exec($cmd);
-            if ($osInfo) {
-                $info['os_info'] = $osInfo;
-            }
-        }
-
-        // Базовая эвристика для определения "текстовости" файла
-        if (!is_dir($fullPath)) {
-            $header = @file_get_contents($fullPath, false, null, 0, 1024);
-            $info['is_text'] = (strpos($header, "\0") === false);
-        } else {
-            $info['is_text'] = false;
-        }
-
-        return ['info' => $info];
-    }
 
     private function actionSaveFile($path, $data, $targetPath) {
         $this->checkAccess($targetPath, 'w');
@@ -612,6 +626,5 @@ class FileManagerApi {
     }
 }
 
-// Запуск API
 $api = new FileManagerApi();
 $api->handleRequest();

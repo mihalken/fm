@@ -107,6 +107,11 @@ async function init() {
     if (appConfig.window_title) document.title = appConfig.window_title;
     if (appConfig.use_trash) document.querySelectorAll('.btn-trash').forEach(b => b.style.display = 'inline-block');
     
+    if (appConfig.ffprobe_enabled) {
+        document.querySelectorAll('.tool-menu-container').forEach(c => c.style.display = ''); 
+        document.querySelectorAll('.tool-ffprobe').forEach(b => b.style.display = 'block');
+    }
+    
     state.left.path = appConfig.panes.left;
     state.right.path = appConfig.panes.right;
 
@@ -200,19 +205,19 @@ function renderList(side, data) {
         
         tr.onclick = (e) => toggleSelect(side, f.name, index, e); 
         
+        // Умный двойной клик (Свойства или Редактор)
         tr.ondblclick = async () => {
             if (f.isDir) {
                 enterFolder(side, f.name);
             } else {
-                // Если это не директория, сначала запрашиваем информацию, чтобы узнать, текст это или бинарник
                 const res = await fetch(`api.php?action=get_file_info&path=${encodeURIComponent(state[side].path)}`, {
                     method: 'POST', body: JSON.stringify({ name: f.name })
                 });
                 const data = await res.json();
                 if (data.info && data.info.is_text) {
-                    openEditor(side, f.name, f.size); // Открываем в редакторе
+                    openEditor(side, f.name, f.size);
                 } else {
-                    openFileInfo(side, f.name); // Открываем свойства
+                    openFileInfo(side, f.name);
                 }
             }
         };
@@ -476,9 +481,53 @@ function updateToolbar(side) {
     const count = state[side].selection.length;
     const pane = document.getElementById(`pane-${side}`);
     if (!pane) return;
+    
+    // Стандартные кнопки
     pane.querySelectorAll('.needs-sel').forEach(b => b.disabled = count === 0);
-    pane.querySelectorAll('.needs-one').forEach(b => b.disabled = count !== 1);
+    
+    pane.querySelectorAll('.needs-one').forEach(b => {
+        b.disabled = count !== 1;
+        // Блокировка самого выпадающего меню "Инструменты" (если выделено 0 или >1 файлов)
+        if (b.classList.contains('dropdown-btn')) {
+            const parent = b.closest('.dropdown');
+            if (parent) {
+                if (count !== 1) parent.classList.add('disabled');
+                else parent.classList.remove('disabled');
+            }
+        }
+    });
+    
     document.querySelectorAll('.btn-paste').forEach(b => b.disabled = !clipboard.type);
+
+    // --- УМНОЕ МЕНЮ ИНСТРУМЕНТОВ ---
+    let isMedia = false;
+    
+    // Проверяем, является ли выделенный объект медиа-файлом
+    if (count === 1) {
+        const fileName = state[side].selection[0];
+        const fileObj = state[side].files.find(f => f.name === fileName);
+        if (fileObj && !fileObj.isDir) {
+            const mediaExts = ['mp4', 'mkv', 'avi', 'mov', 'webm', 'mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'ts', 'flv', 'wmv'];
+            if (mediaExts.includes(fileObj.ext.toLowerCase())) {
+                isMedia = true;
+            }
+        }
+    }
+
+    // Делаем пункт ffprobe неактивным, если это не медиа-файл
+    if (appConfig.ffprobe_enabled) {
+        const ffprobeBtn = pane.querySelector('.tool-ffprobe');
+        if (ffprobeBtn) {
+            ffprobeBtn.disabled = !isMedia;
+            if (!isMedia) {
+                ffprobeBtn.style.opacity = '0.4';
+                ffprobeBtn.style.cursor = 'not-allowed';
+            } else {
+                ffprobeBtn.style.opacity = '1';
+                ffprobeBtn.style.cursor = 'pointer';
+            }
+        }
+    }
 }
 
 async function apiCall(action, side, body = {}) {
@@ -528,10 +577,113 @@ function executeDelete(mode) {
 
 function doRename(s) { const old = state[s].selection[0]; const n = prompt("Новое имя:", old); if(n) apiCall('rename', s, { old_name: old, new_name: n }); }
 function doCreateObj(s, type) { const n = prompt(type === 'folder' ? "Имя папки:" : "Имя файла:"); if(n) apiCall(type === 'folder' ? 'create_folder' : 'create_file', s, { name: n }); }
-function doShowInfo(s) { 
-    const name = state[s].selection[0]; 
-    if(name) openFileInfo(s, name); 
+function doShowInfo(s) { const name = state[s].selection[0]; if(name) openFileInfo(s, name); }
+
+async function openFileInfo(side, fileName) {
+    const res = await fetch(`api.php?action=get_file_info&path=${encodeURIComponent(state[side].path)}`, {
+        method: 'POST', body: JSON.stringify({ name: fileName })
+    });
+    const data = await res.json();
+    
+    if (data.error) { showToast(data.error, 'error'); return; }
+    
+    const info = data.info;
+    document.getElementById('infoTitle').innerText = info.name;
+    
+    let html = `<table class="info-table">`;
+    const addRow = (label, val) => { html += `<tr><td>${label}:</td><td>${val}</td></tr>`; };
+
+    addRow('Тип', info.type);
+    if (info.mime && info.mime !== 'Неизвестно') addRow('MIME-тип', info.mime);
+    if (info.os_info) addRow('ОС детект', info.os_info);
+    
+    html += `<tr><td colspan="2"><hr style="border:0; border-top:1px solid var(--border-color); margin:4px 0;"></td></tr>`;
+    
+    addRow('Размер', formatSize(info.size) + ` <span style="font-size:11px; opacity:0.6;">(${info.size} байт)</span>`);
+    addRow('Изменен', info.modified);
+    addRow('Создан', info.created);
+    addRow('Открыт', info.accessed);
+    
+    html += `<tr><td colspan="2"><hr style="border:0; border-top:1px solid var(--border-color); margin:4px 0;"></td></tr>`;
+    
+    addRow('Владелец', info.owner);
+    addRow('Группа', info.group);
+    addRow('Права', `<span style="font-family:monospace;">${info.perms}</span>`);
+    
+    let accessFlags = [];
+    if (info.is_readable) accessFlags.push('Чтение');
+    if (info.is_writable) accessFlags.push('Запись');
+    if (info.is_executable) accessFlags.push('Выполнение');
+    addRow('Доступ', accessFlags.join(', ') || 'Нет');
+    
+    addRow('Путь', `<span style="font-family:monospace; font-size:11px;">${info.path}</span>`);
+
+    html += `</table>`;
+    
+    document.getElementById('infoContent').innerHTML = html;
+    document.getElementById('infoModal').style.display = 'flex';
 }
+
+function parseFrac(f) {
+    if (!f) return 0;
+    const p = f.split('/');
+    return p.length === 2 ? parseInt(p[0]) / parseInt(p[1]) : parseFloat(f);
+}
+
+async function doFfprobe(side) {
+    const name = state[side].selection[0];
+    if (!name) return;
+    
+    showToast('Анализ медиафайла...', 'info');
+    
+    const res = await fetch(`api.php?action=ffprobe&path=${encodeURIComponent(state[side].path)}`, {
+        method: 'POST', body: JSON.stringify({ name: name })
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
+    
+    document.getElementById('ffprobeTitle').innerText = data.name;
+    
+    let html = '';
+    const format = data.ffprobe.format;
+    if (format) {
+        html += `<div style="margin-bottom:8px; font-weight:bold; color:var(--accent);">Контейнер</div>`;
+        html += `<table class="info-table">`;
+        html += `<tr><td>Формат</td><td>${format.format_name}</td></tr>`;
+        if (format.duration) html += `<tr><td>Длительность</td><td>${parseFloat(format.duration).toFixed(2)} сек</td></tr>`;
+        if (format.bit_rate) html += `<tr><td>Битрейт</td><td>${Math.round(format.bit_rate / 1024)} kbps</td></tr>`;
+        if (format.size) html += `<tr><td>Размер</td><td>${formatSize(format.size)}</td></tr>`;
+        html += `</table>`;
+    }
+    
+    if (data.ffprobe.streams && data.ffprobe.streams.length > 0) {
+        data.ffprobe.streams.forEach((s, i) => {
+            const typeName = s.codec_type === 'video' ? '🎥 Видео' : (s.codec_type === 'audio' ? '🎵 Аудио' : '🎞️ Поток');
+            html += `<div style="margin-bottom:8px; font-weight:bold; color:var(--accent); margin-top:15px;">${typeName} #${i}</div>`;
+            html += `<table class="info-table">`;
+            html += `<tr><td>Кодек</td><td>${s.codec_name} <span style="opacity:0.6">(${s.codec_long_name})</span></td></tr>`;
+            
+            if (s.codec_type === 'video') {
+                html += `<tr><td>Разрешение</td><td>${s.width}x${s.height}</td></tr>`;
+                const fps = parseFrac(s.r_frame_rate);
+                if (fps) html += `<tr><td>FPS</td><td>${fps.toFixed(2)}</td></tr>`;
+                if (s.bit_rate) html += `<tr><td>Битрейт</td><td>${Math.round(s.bit_rate / 1024)} kbps</td></tr>`;
+            }
+            if (s.codec_type === 'audio') {
+                html += `<tr><td>Частота</td><td>${s.sample_rate} Hz</td></tr>`;
+                html += `<tr><td>Каналы</td><td>${s.channels}</td></tr>`;
+                if (s.bit_rate) html += `<tr><td>Битрейт</td><td>${Math.round(s.bit_rate / 1024)} kbps</td></tr>`;
+            }
+            html += `</table>`;
+        });
+    } else if (!format) {
+        html = `<p style="color:#dc3545;">Медиаданные не найдены.</p>`;
+    }
+    
+    document.getElementById('ffprobeContent').innerHTML = html;
+    document.getElementById('ffprobeModal').style.display = 'flex';
+}
+
 async function openEditor(side, fileName, fileSize) {
     const limit = appConfig.max_edit_size || (1024 * 1024);
     if (fileSize !== undefined && fileSize > limit) {
@@ -554,57 +706,6 @@ async function openEditor(side, fileName, fileSize) {
     m.style.display = 'flex';
 }
 
-async function openFileInfo(side, fileName) {
-    const res = await fetch(`api.php?action=get_file_info&path=${encodeURIComponent(state[side].path)}`, {
-        method: 'POST', body: JSON.stringify({ name: fileName })
-    });
-    const data = await res.json();
-    
-    if (data.error) { 
-        showToast(data.error, 'error'); 
-        return; 
-    }
-    
-    const info = data.info;
-    document.getElementById('infoTitle').innerText = info.name;
-    
-    // Формируем красивую таблицу с данными
-    let html = `<table style="width:100%; border-collapse: collapse;">`;
-    const addRow = (label, val) => {
-        html += `<tr><td style="padding:4px 0; color:#888; width:40%;">${label}:</td><td style="padding:4px 0; word-break: break-all;">${val}</td></tr>`;
-    };
-
-    addRow('Тип', info.type);
-    if (info.mime && info.mime !== 'Неизвестно') addRow('MIME-тип', info.mime);
-    if (info.os_info) addRow('ОС детект', info.os_info);
-    
-    html += `<tr><td colspan="2"><hr style="border:0; border-top:1px solid var(--border-color); margin:8px 0;"></td></tr>`;
-    
-    addRow('Размер', formatSize(info.size) + ` <span style="font-size:11px; opacity:0.6;">(${info.size} байт)</span>`);
-    addRow('Изменен', info.modified);
-    addRow('Создан', info.created);
-    addRow('Открыт', info.accessed);
-    
-    html += `<tr><td colspan="2"><hr style="border:0; border-top:1px solid var(--border-color); margin:8px 0;"></td></tr>`;
-    
-    addRow('Владелец', info.owner);
-    addRow('Группа', info.group);
-    addRow('Права', `<span style="font-family:monospace;">${info.perms}</span>`);
-    
-    let accessFlags = [];
-    if (info.is_readable) accessFlags.push('Чтение');
-    if (info.is_writable) accessFlags.push('Запись');
-    if (info.is_executable) accessFlags.push('Выполнение');
-    addRow('Доступ', accessFlags.join(', ') || 'Нет');
-    
-    addRow('Полный путь', `<span style="font-family:monospace; font-size:11px;">${info.path}</span>`);
-
-    html += `</table>`;
-    
-    document.getElementById('infoContent').innerHTML = html;
-    document.getElementById('infoModal').style.display = 'flex';
-}
-
 async function saveFile() { const m = document.getElementById('editorModal'); await apiCall('save_file', m.dataset.side, { name: m.dataset.name, content: document.getElementById('editorContent').value }); closeModal('editorModal'); }
 
 function openPerms(side) {
@@ -620,9 +721,7 @@ function updateOctal() {
     const calc = (r, w, x) => (document.getElementById(r).checked?4:0)+(document.getElementById(w).checked?2:0)+(document.getElementById(x).checked?1:0);
     document.getElementById('permsOctal').innerText = `0${calc('p-u-r','p-u-w','p-u-x')}${calc('p-g-r','p-g-w','p-g-x')}${calc('p-o-r','p-o-w','p-o-x')}`;
 }
-
 async function savePerms() { const m = document.getElementById('permsModal'); await apiCall('chmod', m.dataset.side, { name: m.dataset.name, mode: document.getElementById('permsOctal').innerText }); closeModal('permsModal'); }
-
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 function enterFolder(s, n) { state[s].path += (state[s].path ? '/' : '') + n; loadFiles(s); }
 function goUp(s) { let p = state[s].path.split('/'); p.pop(); state[s].path = p.join('/'); loadFiles(s); }
