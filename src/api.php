@@ -112,6 +112,25 @@ class FileManagerApi {
         return $result;
     }
 
+    // --- НОВОЕ: Рекурсивный подсчет размера папки ---
+    private function getDirSize($dir) {
+        $size = 0;
+        $items = @scandir($dir);
+        if ($items) {
+            foreach ($items as $item) {
+                if ($item === '.' || $item === '..') continue;
+                $path = $dir . '/' . $item;
+                if (is_link($path)) continue; // Защита от бесконечных симлинков
+                if (is_dir($path)) {
+                    $size += $this->getDirSize($path);
+                } else {
+                    $size += @filesize($path) ?: 0;
+                }
+            }
+        }
+        return $size;
+    }
+
     public function handleRequest() {
         try {
             $action = $_GET['action'] ?? '';
@@ -199,6 +218,15 @@ class FileManagerApi {
         }
         usort($files, fn($a, $b) => $b['isDir'] - $a['isDir'] ?: strcasecmp($a['name'], $b['name']));
         return ['files' => $files];
+    }
+
+    // --- НОВОЕ: Экшен для получения размера папки ---
+    private function actionGetFolderSize($path, $data, $targetPath) {
+        $this->checkAccess($targetPath, 'r');
+        $fullPath = $targetPath . '/' . basename($data['name']);
+        if (!is_dir($fullPath)) throw new Exception('Запрошенный объект не является папкой.');
+        
+        return ['size' => $this->getDirSize($fullPath)];
     }
 
     private function actionTransferOs($path, $data, $targetPath) {

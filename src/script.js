@@ -31,7 +31,50 @@ function formatSize(bytes) {
 function toggleSizeFormat(e) {
     e.stopPropagation(); 
     sizeFormat = sizeFormat === 'human' ? 'bytes' : 'human';
-    reloadBoth();
+    renderList('left', { files: state.left.files });
+    renderList('right', { files: state.right.files });
+}
+
+async function calcFolderSize(side, td, e) {
+    e.stopPropagation();
+    const row = td.parentNode;
+    const name = row.getAttribute('data-name');
+    
+    td.innerText = '⏳...';
+    td.onclick = null; 
+    td.style.cursor = 'default';
+    
+    try {
+        const res = await fetch(`api.php?action=get_folder_size&path=${encodeURIComponent(state[side].path)}`, {
+            method: 'POST',
+            body: JSON.stringify({ name: name })
+        });
+        const data = await res.json();
+        
+        if (data.error) {
+            showToast(data.error, 'error');
+            td.innerText = '-';
+            td.onclick = (event) => calcFolderSize(side, td, event);
+            td.style.cursor = 'pointer';
+        } else {
+            // --- НОВОЕ: Запоминаем посчитанный размер в стейт ---
+            const fileObj = state[side].files.find(f => f.name === name);
+            if (fileObj) {
+                fileObj.size = data.size;
+                fileObj.sizeCalculated = true; // Отмечаем, что это больше не загадка
+            }
+
+            td.innerText = formatSize(data.size);
+            td.onclick = (event) => toggleSizeFormat(event);
+            td.style.cursor = 'pointer';
+            td.title = 'Сменить формат (байты/МБ)';
+        }
+    } catch (err) {
+        showToast('Ошибка вычисления размера', 'error');
+        td.innerText = '-';
+        td.onclick = (event) => calcFolderSize(side, td, event);
+        td.style.cursor = 'pointer';
+    }
 }
 
 function gotoPath(side, path) {
@@ -144,10 +187,15 @@ function renderList(side, data) {
         if (oldSel.includes(f.name)) { state[side].selection.push(f.name); tr.classList.add('selected'); }
         if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
         
+        // --- НОВОЕ: Подстановка нужного onclick для размера ---
+        const sizeHTML = (f.isDir && !f.sizeCalculated)
+            ? `<td class="clickable-size" onclick="calcFolderSize('${side}', this, event)" title="Нажмите, чтобы подсчитать размер">-</td>`
+            : `<td class="clickable-size" onclick="toggleSizeFormat(event)" title="Сменить формат">${formatSize(f.size)}</td>`;
+
         tr.innerHTML = `
             <td title="${f.name}">${f.isDir?'📁':'📄'} ${f.isLink?'🔗 ':''}${f.name}</td>
             <td>${f.ext}</td>
-            <td class="clickable-size" onclick="toggleSizeFormat(event)">${formatSize(f.size)}</td>
+            ${sizeHTML}
             <td>${f.owner_group}</td>
             <td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td>
             <td>${f.modified}</td>
@@ -472,7 +520,7 @@ async function saveFile() { const m = document.getElementById('editorModal'); aw
 function openPerms(side) {
     const name = state[side].selection[0];
     const row = document.querySelector(`#pane-${side} tr.selected`);
-    const m = row.cells[4].getAttribute('title').slice(-3); // Поправил индекс, так как добавилась колонка "Тип"
+    const m = row.cells[4].getAttribute('title').slice(-3);
     const set = (v, r, w, x) => { document.getElementById(r).checked = v & 4; document.getElementById(w).checked = v & 2; document.getElementById(x).checked = v & 1; };
     set(m[0], 'p-u-r', 'p-u-w', 'p-u-x'); set(m[1], 'p-g-r', 'p-g-w', 'p-g-x'); set(m[2], 'p-o-r', 'p-o-w', 'p-o-x');
     updateOctal();
