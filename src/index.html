@@ -8,7 +8,16 @@
 </head>
 <body>
 <div id="toast-container"></div>
-<div id="tasks-container" class="tasks-container"></div>
+<div id="tasks-widget" class="tasks-widget">
+    <div class="tasks-header" onclick="toggleTasks()">
+        <span>🔄 Фоновые операции (<span id="task-count">0</span>)</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <button id="btn-clear-tasks" onclick="clearCompletedTasks(event)" style="display:none; background:var(--pane-bg); color:var(--text-color); border:1px solid var(--border-color); border-radius:4px; padding:2px 8px; font-size:12px; cursor:pointer;" title="Очистить завершенные">Очистить</button>
+            <span id="task-chevron">▼</span>
+        </div>
+    </div>
+    <div id="tasks-container" class="tasks-container"></div>
+</div>
 
 <div class="panes-container">
     <div class="pane" id="pane-left">

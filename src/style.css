@@ -84,12 +84,63 @@ body {
 }
 .toast.error { background: #dc3545; }
 
-.tasks-container { position: fixed; bottom: 20px; left: 20px; width: 320px; max-width: 90%; z-index: 9999; display: none; flex-direction: column; gap: 10px; }
-.task-card { background: var(--pane-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.tasks-widget {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    width: 320px;
+    max-width: 90%;
+    z-index: 9999;
+    background: var(--pane-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    display: none; /* скрыт по умолчанию */
+    flex-direction: column;
+    overflow: hidden;
+}
 
-.task-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.task-header > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
-.task-header > div { flex-shrink: 0; display: flex; gap: 5px; }
+.tasks-header {
+    background: var(--header-bg);
+    padding: 10px 15px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.tasks-header:hover { background: var(--hover-bg); }
+
+.tasks-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+    max-height: 40vh; /* Максимальная высота - 40% от экрана */
+    overflow-y: auto; /* Включаем вертикальный скролл */
+}
+
+/* Красивый кастомный скроллбар для задач */
+.tasks-container::-webkit-scrollbar { width: 6px; }
+.tasks-container::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+.tasks-container::-webkit-scrollbar-track { background: transparent; }
+
+/* Состояние свернутости */
+.tasks-widget.minimized .tasks-container { display: none; }
+.tasks-widget.minimized .tasks-header { border-bottom: none; }
+
+/* Сбрасываем старые тени и бордеры у самих карточек, так как они теперь внутри виджета */
+.task-card { 
+    background: var(--pane-bg); 
+    border: 1px solid var(--border-color); 
+    border-radius: 4px; 
+    padding: 10px; 
+}
 
 .task-progress-bg { background: var(--header-bg); height: 8px; border-radius: 4px; overflow: hidden; border: 1px solid var(--border-color); }
 .task-progress-fill { background: var(--accent); height: 100%; width: 0%; transition: width 0.3s, background-color 0.3s; }

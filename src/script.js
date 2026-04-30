@@ -8,6 +8,7 @@ let lastCleanupData = null;
 let sizeFormat = 'human'; 
 let deleteTargetSide = null; 
 let activeSide = 'left';
+let tasksMinimized = false;
 
 let sortConfig = { left: { col: 'name', dir: 'asc' }, right: { col: 'name', dir: 'asc' } };
 try { const saved = JSON.parse(localStorage.getItem('cc_sort')); if (saved) sortConfig = saved; } catch(e) {}
@@ -316,23 +317,32 @@ async function doPaste(side) {
 async function pollTasks() {
     const res = await fetch('api.php?action=poll_tasks');
     const tasks = await res.json();
+    const widget = document.getElementById('tasks-widget');
     const container = document.getElementById('tasks-container');
+    const countSpan = document.getElementById('task-count');
+    const btnClear = document.getElementById('btn-clear-tasks'); // Кнопка очистки
     
     const taskList = Object.values(tasks);
+    
     if (taskList.length === 0) {
-        if (container.style.display === 'flex') {
+        if (widget.style.display === 'flex') {
             reloadBoth(); 
             if (lastCleanupData) {
                 fetch('api.php?action=cleanup_dirs', { method: 'POST', body: JSON.stringify(lastCleanupData) });
                 lastCleanupData = null;
             }
         }
-        container.style.display = 'none'; 
+        widget.style.display = 'none'; 
         container.innerHTML = ''; 
         return; 
     }
     
-    container.style.display = 'flex';
+    widget.style.display = 'flex';
+    countSpan.innerText = taskList.length;
+
+    // Проверяем, есть ли завершенные задачи, чтобы показать кнопку "Очистить"
+    const hasDoneTasks = taskList.some(t => ['completed', 'cancelled', 'error'].includes(t.status));
+    if (btnClear) btnClear.style.display = hasDoneTasks ? 'block' : 'none';
 
     const currentDomIds = Array.from(container.children).map(el => el.dataset.taskId);
     const activeTaskIds = taskList.map(t => t.id);
@@ -402,9 +412,8 @@ async function pollTasks() {
                 controlsHTML += `<button class="task-btn" onclick="controlTask('${t.id}', '${t.status === 'paused' ? 'running' : 'paused'}')" title="Пауза">⏸️</button>`;
                 controlsHTML += `<button class="task-btn" style="color:#dc3545" onclick="controlTask('${t.id}', 'cancel')" title="Отмена">✖</button>`;
             }
-        } else {
-            controlsHTML = `<button class="task-btn" onclick="clearTask('${t.id}')" title="Убрать из списка">🗑️</button>`;
         }
+        // Убрали else блок. Если isDone — переменная controlsHTML остается пустой (иконки корзины нет).
 
         if (controlsDiv.innerHTML !== controlsHTML) {
             controlsDiv.innerHTML = controlsHTML;
@@ -433,6 +442,19 @@ async function controlTask(id, cmd) {
 async function clearTask(id) {
     await fetch('api.php?action=clear_task', { method: 'POST', body: JSON.stringify({id}) });
     pollTasks();
+}
+
+function toggleTasks() {
+    tasksMinimized = !tasksMinimized;
+    const widget = document.getElementById('tasks-widget');
+    const chevron = document.getElementById('task-chevron');
+    if (tasksMinimized) {
+        widget.classList.add('minimized');
+        chevron.innerText = '▲';
+    } else {
+        widget.classList.remove('minimized');
+        chevron.innerText = '▼';
+    }
 }
 
 function updateToolbar(side) {
@@ -544,6 +566,12 @@ async function handleUpload(s, i) {
     if (data.confirm && confirm(data.confirm)) { fd.append('overwrite', 'true'); await fetch(`api.php?action=upload&path=${encodeURIComponent(state[s].path)}`, { method: 'POST', body: fd }); }
     else if (data.error) showToast(data.error, 'error');
     i.value = ''; loadFiles(s);
+}
+
+async function clearCompletedTasks(e) {
+    e.stopPropagation(); // Чтобы клик не свернул виджет
+    await fetch('api.php?action=clear_completed', { method: 'POST', body: JSON.stringify({}) });
+    pollTasks(); // Моментально обновляем виджет
 }
 
 document.addEventListener('mousedown', (e) => {

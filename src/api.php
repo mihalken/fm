@@ -220,7 +220,6 @@ class FileManagerApi {
         return ['files' => $files];
     }
 
-    // --- НОВОЕ: Экшен для получения размера папки ---
     private function actionGetFolderSize($path, $data, $targetPath) {
         $this->checkAccess($targetPath, 'r');
         $fullPath = $targetPath . '/' . basename($data['name']);
@@ -358,7 +357,63 @@ class FileManagerApi {
         return ['success' => true];
     }
 
-    private function actionPollTasks() { return $this->getTasks(); }
+    // Умный опрос задач с автоматической очисткой через 60 секунд
+    private function actionPollTasks() { 
+        $tasks = $this->getTasks();
+        $needsCleanup = false;
+        $now = time();
+        
+        // Быстро проверяем, есть ли завершенные задачи, требующие таймера или удаления
+        foreach ($tasks as $t) {
+            if (in_array($t['status'], ['completed', 'cancelled', 'error'])) {
+                if (!isset($t['finished_at']) || $now - $t['finished_at'] >= 60) {
+                    $needsCleanup = true; 
+                    break;
+                }
+            }
+        }
+        
+        // Если нашли, обновляем файл
+        if ($needsCleanup) {
+            $this->modifyTasks(function($tasks) use ($now) {
+                foreach ($tasks as $id => $t) {
+                    if (in_array($t['status'], ['completed', 'cancelled', 'error'])) {
+                        if (!isset($t['finished_at'])) {
+                            // Засекаем время завершения
+                            $tasks[$id]['finished_at'] = $now;
+                        } elseif ($now - $t['finished_at'] >= 60) {
+                            // Удаляем физический мусор, если задача была отменена или с ошибкой
+                            if ($t['status'] !== 'completed') {
+                                $dstDir = realpath($this->baseDir . '/' . dirname($t['to']));
+                                if ($dstDir) @unlink($dstDir . '/' . basename($t['to']));
+                            }
+                            unset($tasks[$id]); // Удаляем саму задачу (прошла 1 минута)
+                        }
+                    }
+                }
+                return $tasks;
+            });
+            return $this->getTasks(); // Возвращаем уже очищенный список
+        }
+        return $tasks; 
+    }
+
+    // Кнопка принудительной очистки всех завершенных задач
+    private function actionClearCompleted($path, $data) {
+        $this->modifyTasks(function($tasks) {
+            foreach ($tasks as $id => $t) {
+                if (in_array($t['status'], ['completed', 'cancelled', 'error'])) {
+                    if ($t['status'] !== 'completed') {
+                        $dstDir = realpath($this->baseDir . '/' . dirname($t['to']));
+                        if ($dstDir) @unlink($dstDir . '/' . basename($t['to']));
+                    }
+                    unset($tasks[$id]);
+                }
+            }
+            return $tasks;
+        });
+        return ['success' => true];
+    }
 
     private function actionControlTask($path, $data) {
         $this->modifyTasks(function($tasks) use ($data) {
