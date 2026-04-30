@@ -1,5 +1,4 @@
 let appConfig = {};
-// Добавлены renderedFiles и lastClickIndex для отслеживания shift-выделения
 const state = { 
     left: { path: '', selection: [], files: [], renderedFiles: [], lastClickIndex: -1 }, 
     right: { path: '', selection: [], files: [], renderedFiles: [], lastClickIndex: -1 } 
@@ -8,6 +7,7 @@ let clipboard = { type: null, files: [], sourcePath: '' };
 let lastCleanupData = null; 
 let sizeFormat = 'human'; 
 let deleteTargetSide = null; 
+let activeSide = 'left';
 
 let sortConfig = { left: { col: 'name', dir: 'asc' }, right: { col: 'name', dir: 'asc' } };
 try { const saved = JSON.parse(localStorage.getItem('cc_sort')); if (saved) sortConfig = saved; } catch(e) {}
@@ -104,7 +104,7 @@ async function loadFiles(side) {
 function renderList(side, data) {
     const oldSel = [...state[side].selection]; 
     state[side].selection = [];
-    state[side].lastClickIndex = -1; // Сбрасываем индекс при перерисовке
+    state[side].lastClickIndex = -1; 
     
     if (data.error) { showToast(data.error, 'error'); updateToolbar(side); return; }
     if (data.files) state[side].files = data.files;
@@ -114,7 +114,7 @@ function renderList(side, data) {
     
     if (state[side].path !== '') {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td colspan="5" style="color:var(--accent); cursor:pointer">🔙 .. Назад</td>`;
+        tr.innerHTML = `<td colspan="6" style="color:var(--accent); cursor:pointer">🔙 .. Назад</td>`;
         tr.onclick = () => goUp(side);
         list.appendChild(tr);
     }
@@ -135,25 +135,25 @@ function renderList(side, data) {
         if (el) el.innerText = (c === col) ? (dir === 'asc' ? ' ▲' : ' ▼') : '';
     });
 
-    // Сохраняем физический порядок имен для логики Shift
     state[side].renderedFiles = filesToRender.map(f => f.name);
 
     filesToRender.forEach((f, index) => {
         const tr = document.createElement('tr');
-        tr.setAttribute('data-name', f.name); // Метка для поиска при визуальном выделении
+        tr.setAttribute('data-name', f.name); 
         
         if (oldSel.includes(f.name)) { state[side].selection.push(f.name); tr.classList.add('selected'); }
         if (clipboard.type === 'cut' && clipboard.sourcePath === state[side].path && clipboard.files.includes(f.name)) tr.classList.add('clipboard-cut');
         
         tr.innerHTML = `
             <td title="${f.name}">${f.isDir?'📁':'📄'} ${f.isLink?'🔗 ':''}${f.name}</td>
+            <td>${f.ext}</td>
             <td class="clickable-size" onclick="toggleSizeFormat(event)">${formatSize(f.size)}</td>
             <td>${f.owner_group}</td>
             <td title="${f.perms}" style="font-family:monospace">${formatPerms(f.perms)}</td>
             <td>${f.modified}</td>
         `;
         
-        tr.onclick = (e) => toggleSelect(side, f.name, index, e); // Передаем индекс
+        tr.onclick = (e) => toggleSelect(side, f.name, index, e); 
         tr.ondblclick = () => f.isDir ? enterFolder(side, f.name) : openEditor(side, f.name, f.size);
         list.appendChild(tr);
     });
@@ -196,39 +196,29 @@ function toggleSelect(side, name, index, e) {
     const ctrl = e.ctrlKey || e.metaKey;
     const shift = e.shiftKey;
 
-    // Сбрасываем системное выделение текста, чтобы браузер не синил всю таблицу
     if (shift) document.getSelection().removeAllRanges();
 
     if (shift && state[side].lastClickIndex !== -1) {
-        // Определяем границы (сверху вниз или снизу вверх)
         const start = Math.min(state[side].lastClickIndex, index);
         const end = Math.max(state[side].lastClickIndex, index);
-        
-        // Достаем имена из отсортированного списка
         const rangeNames = state[side].renderedFiles.slice(start, end + 1);
         
         if (ctrl) {
-            // Если зажат и Shift и Ctrl - добавляем уникальные файлы в текущее выделение
             state[side].selection = [...new Set([...state[side].selection, ...rangeNames])];
         } else {
-            // Обычный Shift - заменяет выделение на диапазон
             state[side].selection = rangeNames;
         }
     } else {
         if (ctrl) {
-            // Обычный клик с Ctrl (добавить/убрать один файл)
             state[side].selection.includes(name) 
                 ? state[side].selection = state[side].selection.filter(n => n !== name) 
                 : state[side].selection.push(name);
         } else {
-            // Обычный клик (выделить только этот файл)
             state[side].selection = [name];
         }
-        // Запоминаем точку старта для будущего Shift
         state[side].lastClickIndex = index;
     }
 
-    // Синхронизируем DOM: закрашиваем нужные строки
     const list = document.getElementById(`list-${side}`);
     Array.from(list.children).forEach(row => {
         const rowName = row.getAttribute('data-name');
@@ -290,17 +280,15 @@ async function pollTasks() {
             }
         }
         container.style.display = 'none'; 
-        container.innerHTML = ''; // Очищаем контейнер
+        container.innerHTML = ''; 
         return; 
     }
     
     container.style.display = 'flex';
 
-    // Получаем список ID текущих карточек в DOM
     const currentDomIds = Array.from(container.children).map(el => el.dataset.taskId);
     const activeTaskIds = taskList.map(t => t.id);
 
-    // Удаляем из DOM карточки, которых больше нет в списке задач
     currentDomIds.forEach(id => {
         if (!activeTaskIds.includes(id)) {
             const el = document.getElementById(`task-card-${id}`);
@@ -308,7 +296,6 @@ async function pollTasks() {
         }
     });
 
-    // Обновляем или создаем карточки
     taskList.forEach(t => {
         const isNative = (t.native === true) && (t.status === 'running');
         const percent = t.size === 0 ? 100 : Math.round((t.offset / t.size) * 100);
@@ -327,7 +314,6 @@ async function pollTasks() {
 
         let card = document.getElementById(`task-card-${t.id}`);
 
-        // Если карточки еще нет, создаем её базовый каркас
         if (!card) {
             card = document.createElement('div');
             card.className = 'task-card';
@@ -349,7 +335,6 @@ async function pollTasks() {
         const controlsDiv = card.querySelector('.task-controls');
         const progressFill = card.querySelector('.task-progress-fill');
 
-        // 1. Точечно обновляем текст заголовка
         const titleText = `${statusIcon} ${t.type==='copy'?'Копия':'Перенос'}: ${t.name.split('/').pop()} (${displayPercent})`;
         if (titleSpan.innerText !== titleText) {
             titleSpan.innerText = titleText;
@@ -363,7 +348,6 @@ async function pollTasks() {
             }
         }
 
-        // 2. Управление кнопками: скрываем и паузу, и отмену, если isNative
         let controlsHTML = '';
         if (!isDone) {
             if (!isNative) {
@@ -378,7 +362,6 @@ async function pollTasks() {
             controlsDiv.innerHTML = controlsHTML;
         }
 
-        // 3. Обновляем полоску (ВАЖНО: используем backgroundColor, чтобы не сбить анимацию!)
         progressFill.style.width = `${widthPercent}%`;
         progressFill.style.backgroundColor = bgColor;
 
@@ -489,7 +472,7 @@ async function saveFile() { const m = document.getElementById('editorModal'); aw
 function openPerms(side) {
     const name = state[side].selection[0];
     const row = document.querySelector(`#pane-${side} tr.selected`);
-    const m = row.cells[3].getAttribute('title').slice(-3);
+    const m = row.cells[4].getAttribute('title').slice(-3); // Поправил индекс, так как добавилась колонка "Тип"
     const set = (v, r, w, x) => { document.getElementById(r).checked = v & 4; document.getElementById(w).checked = v & 2; document.getElementById(x).checked = v & 1; };
     set(m[0], 'p-u-r', 'p-u-w', 'p-u-x'); set(m[1], 'p-g-r', 'p-g-w', 'p-g-x'); set(m[2], 'p-o-r', 'p-o-w', 'p-o-x');
     updateOctal();
@@ -514,4 +497,35 @@ async function handleUpload(s, i) {
     else if (data.error) showToast(data.error, 'error');
     i.value = ''; loadFiles(s);
 }
+
+document.addEventListener('mousedown', (e) => {
+    if (e.target.closest('#pane-left')) activeSide = 'left';
+    else if (e.target.closest('#pane-right')) activeSide = 'right';
+});
+
+document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) return;
+    const anyModalOpen = Array.from(document.querySelectorAll('.modal-overlay')).some(m => m.style.display === 'flex');
+    if (anyModalOpen) return;
+
+    const isCtrl = e.ctrlKey || e.metaKey;
+
+    if (isCtrl && e.code === 'KeyC') {
+        if (state[activeSide].selection.length > 0) {
+            e.preventDefault();
+            addToClipboard(activeSide, 'copy');
+        }
+    } else if (isCtrl && e.code === 'KeyX') {
+        if (state[activeSide].selection.length > 0) {
+            e.preventDefault();
+            addToClipboard(activeSide, 'cut');
+        }
+    } else if (isCtrl && e.code === 'KeyV') {
+        if (clipboard.type) {
+            e.preventDefault();
+            doPaste(activeSide);
+        }
+    }
+});
+
 document.addEventListener('DOMContentLoaded', init);

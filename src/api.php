@@ -23,7 +23,9 @@ class FileManagerApi {
             $this->baseDir = realpath($this->config['base_dir']);
         }
 
-        $this->tasksFile = $this->config['tasks_file'];
+        // Жестко задаем путь во временной папке ОС
+        $this->tasksFile = sys_get_temp_dir() . '/fm_tasks_' . md5(__DIR__) . '.json';
+        
         if (!file_exists($this->tasksFile)) {
             file_put_contents($this->tasksFile, json_encode([]));
         }
@@ -182,8 +184,12 @@ class FileManagerApi {
                 $dt = new DateTime('@' . $stat['mtime']);
                 $dt->setTimezone($this->serverTimeZone);
 
+                $ext = pathinfo($file, PATHINFO_EXTENSION);
+                $type = is_dir($fp) ? 'folder' : ($ext !== '' ? strtolower($ext) : 'none');
+
                 $files[] = [
                     'name' => $file, 'isDir' => is_dir($fp), 'isLink' => $isLink, 
+                    'ext' => $type,
                     'size' => is_dir($fp) ? '-' : (filesize($fp) ?: 0),
                     'owner_group' => ($owner ?: '???') . ':' . ($group ?: '???'),
                     'perms' => substr(sprintf('%o', fileperms($fp)), -4),

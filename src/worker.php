@@ -4,7 +4,9 @@ if (!$taskId) exit;
 
 $config = require __DIR__ . '/config.php';
 $baseDir = realpath($config['base_dir']);
-$tasksFile = $config['tasks_file'];
+
+$tasksFile = sys_get_temp_dir() . '/fm_tasks_' . md5(__DIR__) . '.json';
+
 $chunkSize = $config['chunk_size'] ?? (2 * 1024 * 1024);
 
 function updateTask($id, $callback) {
