@@ -1,3 +1,4 @@
 uploads/
 tasks.json
-config.php
+src/config.php
+issues.txt
