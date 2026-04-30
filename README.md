@@ -1,6 +1,7 @@
 # Simple File Manager
 
-<img width="1145" height="600" alt="image" src="https://github.com/user-attachments/assets/b44db3ff-bfc6-4aa6-b635-62691e3dfdb1" />
+<img width="1302" height="628" alt="image" src="https://github.com/user-attachments/assets/d9def366-55f6-4df0-bec9-e453b5292b0e" />
+
 
 #### Only local non-root runs
 
