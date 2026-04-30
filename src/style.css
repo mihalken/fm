@@ -236,8 +236,11 @@ body {
     border-radius: 4px; 
     margin-top: 10px; 
     box-shadow: 0 4px 12px rgba(0,0,0,0.3); 
-    word-break: break-word; 
-    overflow-wrap: break-word; 
+    
+    word-break: break-word;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+    
     max-width: 350px; 
 }
 
