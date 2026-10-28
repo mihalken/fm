@@ -271,6 +271,15 @@ class FileManagerApi {
         if (!is_dir($fullPath)) {
             $header = @file_get_contents($fullPath, false, null, 0, 1024);
             $info['is_text'] = (strpos($header, "\0") === false);
+            
+            $size = filesize($fullPath) ?: 0;
+            if ($size > 0 && $size <= 100 * 1024 * 1024) {
+                $info['md5'] = @hash_file('md5', $fullPath);
+                $info['sha256'] = @hash_file('sha256', $fullPath);
+            } elseif ($size > 100 * 1024 * 1024) {
+                $info['md5'] = 'Пропуск (файл > 100МБ)';
+                $info['sha256'] = 'Пропуск (файл > 100МБ)';
+            }
         } else {
             $info['is_text'] = false;
         }

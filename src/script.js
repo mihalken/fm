@@ -205,7 +205,6 @@ function renderList(side, data) {
         
         tr.onclick = (e) => toggleSelect(side, f.name, index, e); 
         
-        // Умный двойной клик (Свойства или Редактор)
         tr.ondblclick = async () => {
             if (f.isDir) {
                 enterFolder(side, f.name);
@@ -482,12 +481,10 @@ function updateToolbar(side) {
     const pane = document.getElementById(`pane-${side}`);
     if (!pane) return;
     
-    // Стандартные кнопки
     pane.querySelectorAll('.needs-sel').forEach(b => b.disabled = count === 0);
     
     pane.querySelectorAll('.needs-one').forEach(b => {
         b.disabled = count !== 1;
-        // Блокировка самого выпадающего меню "Инструменты" (если выделено 0 или >1 файлов)
         if (b.classList.contains('dropdown-btn')) {
             const parent = b.closest('.dropdown');
             if (parent) {
@@ -499,10 +496,8 @@ function updateToolbar(side) {
     
     document.querySelectorAll('.btn-paste').forEach(b => b.disabled = !clipboard.type);
 
-    // --- УМНОЕ МЕНЮ ИНСТРУМЕНТОВ ---
     let isMedia = false;
     
-    // Проверяем, является ли выделенный объект медиа-файлом
     if (count === 1) {
         const fileName = state[side].selection[0];
         const fileObj = state[side].files.find(f => f.name === fileName);
@@ -514,7 +509,6 @@ function updateToolbar(side) {
         }
     }
 
-    // Делаем пункт ffprobe неактивным, если это не медиа-файл
     if (appConfig.ffprobe_enabled) {
         const ffprobeBtn = pane.querySelector('.tool-ffprobe');
         if (ffprobeBtn) {
@@ -600,6 +594,10 @@ async function openFileInfo(side, fileName) {
     html += `<tr><td colspan="2"><hr style="border:0; border-top:1px solid var(--border-color); margin:4px 0;"></td></tr>`;
     
     addRow('Размер', formatSize(info.size) + ` <span style="font-size:11px; opacity:0.6;">(${info.size} байт)</span>`);
+    
+    if (info.md5) addRow('MD5', `<span style="font-family:monospace; font-size:11px; user-select:all; cursor:pointer;" title="Кликните для выделения">${info.md5}</span>`);
+    if (info.sha256) addRow('SHA-256', `<span style="font-family:monospace; font-size:11px; user-select:all; cursor:pointer;" title="Кликните для выделения">${info.sha256}</span>`);
+
     addRow('Изменен', info.modified);
     addRow('Создан', info.created);
     addRow('Открыт', info.accessed);
